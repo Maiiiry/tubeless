@@ -364,12 +364,13 @@ async function subcommandCompletion(
     return optionOrPositionalCompletion(spec, scanned, current, io);
   }
   if (!inline) return completion;
+  // Shell scripts complete file paths after the "--flag=" prefix themselves.
   return {
     candidates: completion.candidates.map((candidate) => ({
       ...candidate,
       value: `${inline[1]}=${candidate.value}`,
     })),
-    files: false,
+    files: completion.files,
   };
 }
 
@@ -486,7 +487,11 @@ _tubeless() {
     fi
   done
   (( \${#candidates} )) && _describe -t tubeless-values 'tubeless' candidates && ret=0
-  (( files )) && _files && ret=0
+  # Complete the path after "--flag=" while keeping the flag prefix.
+  if (( files )); then
+    [[ "$PREFIX" == --*=* ]] && compset -P '*='
+    _files && ret=0
+  fi
   return ret
 }
 if [[ "$funcstack[1]" == "_tubeless" ]]; then
@@ -511,7 +516,12 @@ function __tubeless_complete
         end
     end
     if test $files = 1
-        __fish_complete_path "$current"
+        # Complete the path after "--flag=" while keeping the flag prefix.
+        set -l prefix (string match -r -- '^--[^=]+=' "$current")
+        set -l path (string replace -r -- '^--[^=]+=' '' "$current")
+        for candidate in (__fish_complete_path "$path")
+            printf '%s%s\\n' "$prefix" "$candidate"
+        end
     end
 end
 complete -c tubeless -f -a '(__tubeless_complete)'

@@ -203,6 +203,8 @@ describe("tubeless __complete", () => {
       expect((await complete(directory, ...words)).lines, words.join(" ")).toEqual([":files"]);
     }
     expect((await complete(directory, "ui", "--host", "")).lines).toEqual([]);
+    // zsh and fish keep `--flag=path` as one word; their scripts complete after the `=`.
+    expect((await complete(directory, "run", "--project=./pr")).lines).toEqual([":files"]);
   });
 
   it("stays silent when the project cannot load", async () => {

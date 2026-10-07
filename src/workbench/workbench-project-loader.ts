@@ -101,8 +101,9 @@ function createPipelineRegistration(
     source: pipeline.id,
     cwd,
     id: pipeline.id,
+    // A registered command owns presentation overrides; it plans its pipeline unchanged.
     async loadPlan() {
-      return { view: pipeline };
+      return { view: command ?? pipeline };
     },
     async loadCommand(io) {
       const commandIo = { ...io, cwd };

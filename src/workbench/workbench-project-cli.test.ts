@@ -125,6 +125,7 @@ async function writeAutomaticProjectFixture(mixed = false): Promise<{
       const explicit = definePipelineCommand(definePipeline({
         id: "explicit", name: "Explicit job", description: "Print mapped text.", steps: [work],
       }), {
+        name: "Explicit CLI",
         params: { text: { type: "string" } },
         mapOptions: ({ text, resume }) => ({ message: text.toUpperCase() + (resume ? ":resumed" : "") }),
         validate: ({ text }) => text === "invalid" ? ["Text is invalid"] : [],
@@ -152,8 +153,11 @@ describe("project file workbench", () => {
     const listTextIo = captureIo(directory);
     expect(await runWorkbenchCli(["list"], listTextIo)).toBe(0);
     expect(listTextIo.output.join("")).toBe(
-      "automatic\nexplicit   Explicit job - Print mapped text.\n"
+      "automatic\nexplicit   Explicit CLI - Print mapped text.\n"
     );
+    const inspectIo = captureIo(directory);
+    expect(await runWorkbenchCli(["inspect", "explicit"], inspectIo)).toBe(0);
+    expect(inspectIo.output.join("")).toContain("Explicit CLI");
     const invalidIo = captureIo(directory);
     expect(
       await runWorkbenchCli(["run", "explicit", "--", "--text", "invalid"], invalidIo)
@@ -186,7 +190,7 @@ describe("project file workbench", () => {
           },
           {
             id: "explicit",
-            name: "Explicit job",
+            name: "Explicit CLI",
             description: "Print mapped text.",
             parameters: expect.arrayContaining([
               expect.objectContaining({ key: "text" }),
@@ -382,7 +386,7 @@ describe("project file workbench", () => {
     expect(io.errors).toEqual([]);
     const textIo = captureIo(directory);
     expect(await runWorkbenchCli(["list"], textIo)).toBe(TUBELESS_WORKBENCH_EXIT_CODE.success);
-    expect(textIo.output.join("")).toBe("import-data\n");
+    expect(textIo.output.join("")).toBe("import-data  Import data\n");
     expect(textIo.errors).toEqual([]);
   });
 

@@ -1,4 +1,5 @@
 import { pipelineForCommand } from "../utilities/pipeline-command-marker.js";
+import { didYouMean } from "../utilities/suggest.js";
 import type { PipelineCommand } from "../cli/cli-pipeline-command.js";
 import type { Pipeline } from "../core/pipeline.js";
 
@@ -135,8 +136,11 @@ export function defineProject(
 
   const get: PipelineProject<string, readonly AnyProjectPipeline[]>["get"] = (id) => {
     const pipeline = byId.get(id);
-    if (!pipeline) throw new Error(`Project does not define pipeline ${JSON.stringify(id)}.`);
-    return pipeline;
+    if (pipeline) return pipeline;
+    const suggestion = didYouMean(id, byId.keys());
+    throw new Error(
+      `Project does not define pipeline ${JSON.stringify(id)}.${suggestion ? ` ${suggestion}` : ""}`
+    );
   };
 
   const project: PipelineProject<string, readonly AnyProjectPipeline[]> = {

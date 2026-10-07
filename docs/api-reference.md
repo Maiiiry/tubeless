@@ -173,7 +173,7 @@ Package: `tubeless`
 | [`CliPathParam`](https://github.com/chetmancini/tubeless/blob/main/src/cli/cli-types.ts#L64)                            | Declarative configuration for a filesystem path command parameter.                  |
 | [`CliStringParam`](https://github.com/chetmancini/tubeless/blob/main/src/cli/cli-types.ts#L35)                          | Declarative configuration for a string command parameter.                           |
 | [`CliValidationError`](https://github.com/chetmancini/tubeless/blob/main/src/cli/cli-types.ts#L192)                     | Error thrown when command-line arguments fail schema validation.                    |
-| [`defineCommand`](https://github.com/chetmancini/tubeless/blob/main/src/cli/cli-command.ts#L406)                        | Create a typed command from a declarative parameter schema and run handler.         |
+| [`defineCommand`](https://github.com/chetmancini/tubeless/blob/main/src/cli/cli-command.ts#L409)                        | Create a typed command from a declarative parameter schema and run handler.         |
 | [`definePipelineCommand`](https://github.com/chetmancini/tubeless/blob/main/src/cli/cli-pipeline-command.ts#L267)       | Turn a pipeline into a CLI; infer domain flags from its Standard JSON Schema input. |
 | [`DefinePipelineCommandConfig`](https://github.com/chetmancini/tubeless/blob/main/src/cli/cli-pipeline-command.ts#L146) | Configuration for a typed pipeline command.                                         |
 | [`PipelineCliParseResult`](https://github.com/chetmancini/tubeless/blob/main/src/cli/cli-pipeline-command.ts#L53)       | Parse result returned by commands created with `definePipelineCommand`.             |
@@ -240,13 +240,13 @@ Package: `tubeless`
 
 | Symbol                                                                                                              | Description                                                                       |
 | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`CompiledPipelineDocument`](https://github.com/chetmancini/tubeless/blob/main/src/project/project-compiler.ts#L14) | Immutable compiled pipelines and descriptive metadata from a parsed document.     |
-| [`compilePipelineDocument`](https://github.com/chetmancini/tubeless/blob/main/src/project/project-compiler.ts#L25)  | Compile parsed YAML or JSON into ordinary pipelines.                              |
-| [`defineProject`](https://github.com/chetmancini/tubeless/blob/main/src/project/pipeline-project.ts#L66)            | Register each pipeline once, directly or through its explicit command.            |
+| [`CompiledPipelineDocument`](https://github.com/chetmancini/tubeless/blob/main/src/project/project-compiler.ts#L15) | Immutable compiled pipelines and descriptive metadata from a parsed document.     |
+| [`compilePipelineDocument`](https://github.com/chetmancini/tubeless/blob/main/src/project/project-compiler.ts#L26)  | Compile parsed YAML or JSON into ordinary pipelines.                              |
+| [`defineProject`](https://github.com/chetmancini/tubeless/blob/main/src/project/pipeline-project.ts#L67)            | Register each pipeline once, directly or through its explicit command.            |
 | [`PipelineDocumentError`](https://github.com/chetmancini/tubeless/blob/main/src/project/project-document.ts#L72)    | A document shape or reference error; graph errors remain PipelineDefinitionError. |
 | [`PipelineDocumentMetadata`](https://github.com/chetmancini/tubeless/blob/main/src/project/project-document.ts#L11) | Optional human-facing document information, never execution policy.               |
-| [`PipelineProject`](https://github.com/chetmancini/tubeless/blob/main/src/project/pipeline-project.ts#L49)          | Immutable named pipeline collection, preserving each pipeline's exact type by id. |
-| [`ProjectOptions`](https://github.com/chetmancini/tubeless/blob/main/src/project/pipeline-project.ts#L39)           | Optional project presentation and execution directory.                            |
+| [`PipelineProject`](https://github.com/chetmancini/tubeless/blob/main/src/project/pipeline-project.ts#L50)          | Immutable named pipeline collection, preserving each pipeline's exact type by id. |
+| [`ProjectOptions`](https://github.com/chetmancini/tubeless/blob/main/src/project/pipeline-project.ts#L40)           | Optional project presentation and execution directory.                            |
 | [`ProjectRegistry`](https://github.com/chetmancini/tubeless/blob/main/src/project/project-registry.ts#L79)          | Only explicitly registered functions and schemas can be referenced by a document. |
 
 ### `tubeless/testing`

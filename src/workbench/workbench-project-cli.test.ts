@@ -149,6 +149,11 @@ describe("project file workbench", () => {
     expect(JSON.parse(listIo.output.join(""))).toMatchObject({
       pipelines: ["automatic", "explicit"],
     });
+    const listTextIo = captureIo(directory);
+    expect(await runWorkbenchCli(["list"], listTextIo)).toBe(0);
+    expect(listTextIo.output.join("")).toBe(
+      "automatic\nexplicit   Explicit job - Print mapped text.\n"
+    );
     const invalidIo = captureIo(directory);
     expect(
       await runWorkbenchCli(["run", "explicit", "--", "--text", "invalid"], invalidIo)
@@ -378,6 +383,7 @@ describe("project file workbench", () => {
     const textIo = captureIo(directory);
     expect(await runWorkbenchCli(["list"], textIo)).toBe(TUBELESS_WORKBENCH_EXIT_CODE.success);
     expect(textIo.output.join("")).toBe("import-data\n");
+    expect(textIo.errors).toEqual([]);
   });
 
   it("rejects a pipeline registered through both a project and a direct command file", async () => {
@@ -469,6 +475,29 @@ describe("project file workbench", () => {
       TUBELESS_WORKBENCH_EXIT_CODE.success
     );
     expect(JSON.parse(io.output.join(""))).toMatchObject({ pipelineId: "import-data" });
+  });
+
+  it("suggests a near-miss project pipeline id and points at list", async () => {
+    const { directory, projectFile } = await writeProjectFixture();
+    const defaultProject = path.join(directory, "tubeless.project.ts");
+
+    const nearIo = captureIo(directory);
+    expect(await runWorkbenchCli(["inspect", "import-dat"], nearIo)).toBe(
+      TUBELESS_WORKBENCH_EXIT_CODE.load
+    );
+    expect(nearIo.errors.join("")).toBe(
+      `Error: Project file ${defaultProject} does not define pipeline "import-dat". Did you mean "import-data"?\n` +
+        'Run "tubeless list" to see its 1 pipeline.\n'
+    );
+
+    const farIo = captureIo(directory);
+    expect(await runWorkbenchCli(["plan", "--project", projectFile, "export"], farIo)).toBe(
+      TUBELESS_WORKBENCH_EXIT_CODE.load
+    );
+    expect(farIo.errors.join("")).toBe(
+      `Error: Project file ${projectFile} does not define pipeline "export".\n` +
+        `Run "tubeless list --project ${projectFile}" to see its 1 pipeline.\n`
+    );
   });
 
   it("keeps an existing file argument ahead of default-project identity lookup", async () => {

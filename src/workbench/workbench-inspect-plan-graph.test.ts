@@ -42,9 +42,26 @@ describe("workbench inspect, plan, and graph", () => {
       await runWorkbenchCli(["inspect", "--json", "--owner", "unknown", "pipeline.mjs"], noMatch)
     ).toBe(0);
     expect(JSON.parse(noMatch.output.join("")).stepIds).toEqual([]);
+    const text = captureIo(directory);
+    expect(
+      await runWorkbenchCli(["inspect", "--tag", "pii", "--owner", "data", "pipeline.mjs"], text)
+    ).toBe(0);
+    expect(text.output.join("")).toBe(
+      [
+        "Pipeline metadata",
+        "Targets: sink",
+        "Owner: platform",
+        "",
+        "Steps matching filters (1 of 2):",
+        "  sink",
+        "        depends on: source",
+        "        tags: pii, write; owner: data; domain: billing",
+        "",
+      ].join("\n")
+    );
   });
 
-  it("inspects pipeline identity, goals, dependencies, and policies without running it", async () => {
+  it("inspects pipeline identity, targets, and each step's dependencies without running it", async () => {
     const { directory } = await writeModule(fixturePipeline);
     const io = captureIo(directory);
 
@@ -52,14 +69,21 @@ describe("workbench inspect, plan, and graph", () => {
 
     expect(exitCode).toBe(TUBELESS_WORKBENCH_EXIT_CODE.success);
     expect(io.errors).toEqual([]);
-    const rendered = io.output.join("");
-    expect(rendered).toContain("Pipeline fixture");
-    expect(rendered).toContain("Targets: publish");
-    expect(rendered).toContain("Exact steps: load, publish");
-    expect(rendered).toContain("Pipeline fixture: plan (ok=true, dryRun=false, steps=2)");
-    expect(rendered).toContain("Load Rows [load]: run - Read source rows.");
-    expect(rendered).toContain("publish: run - Publish output.");
-    expect(rendered).not.toContain("requires:");
+    expect(io.output.join("")).toBe(
+      [
+        "Pipeline fixture",
+        "Targets: publish",
+        "",
+        "Steps (2):",
+        "  load     Load Rows - Read source rows.",
+        "  publish  Publish output.",
+        "           depends on: load, hint (optional)",
+        "           failure gate: validate",
+        "           dry run: skip",
+        "           runtime skip: possible",
+        "",
+      ].join("\n")
+    );
   });
 
   it("emits the inspection as structured JSON", async () => {

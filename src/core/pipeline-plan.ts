@@ -1,4 +1,5 @@
 import { duplicateValues } from "../utilities/collections.js";
+import { didYouMean } from "../utilities/suggest.js";
 import type { CompiledPipeline } from "./pipeline-compiler.js";
 import type { StepIds, TargetIds } from "./pipeline-definition.js";
 import { decideStepDisposition } from "./pipeline-disposition.js";
@@ -122,6 +123,40 @@ export function hasConflictingSelectionControls(controls: {
   return controls.stepIds !== undefined && controls.targets !== undefined;
 }
 
+/** One `Did you mean …?` sentence per mistyped id, naming the id when several were requested. */
+function selectionSuggestions(ids: readonly string[], candidates: readonly string[]): string[] {
+  const uniqueIds = [...new Set(ids)];
+  return uniqueIds.flatMap((id) => {
+    const suggestion = didYouMean(id, candidates);
+    if (suggestion === undefined) return [];
+    return [
+      uniqueIds.length === 1 ? suggestion : `${suggestion.slice(0, -1)} for ${JSON.stringify(id)}?`,
+    ];
+  });
+}
+
+/** Near-miss targets, plus the declared target list whenever some id has no near-miss. */
+function targetHints(
+  pipelineId: string,
+  ids: readonly string[],
+  declaredTargetIds: ReadonlySet<string>
+): string[] {
+  const declared = [...declaredTargetIds];
+  const hints = selectionSuggestions(ids, declared);
+  if (hints.length < new Set(ids).size) {
+    hints.push(
+      declared.length === 0
+        ? `Pipeline ${pipelineId} declares no targets.`
+        : `Declared targets: ${declared.join(", ")}.`
+    );
+  }
+  return hints;
+}
+
+function withHints(message: string, hints: readonly string[]): string {
+  return hints.length === 0 ? message : `${message}. ${hints.join(" ")}`;
+}
+
 export function buildPipelinePlan<
   TSteps extends readonly AnyStep[],
   TResult,
@@ -208,7 +243,10 @@ export function buildPipelinePlan<
         "TUBELESS_PLANNING_STEP_UNKNOWN",
         "planning",
         "selection",
-        `Pipeline ${compiled.id} requested unknown step ids: ${unknownRequestedStepIds.join(", ")}`
+        withHints(
+          `Pipeline ${compiled.id} requested unknown step ids: ${unknownRequestedStepIds.join(", ")}`,
+          selectionSuggestions(unknownRequestedStepIds, compiled.stepIds)
+        )
       )
     );
   }
@@ -230,7 +268,10 @@ export function buildPipelinePlan<
         "TUBELESS_PLANNING_TARGET_UNKNOWN",
         "planning",
         "selection",
-        `Pipeline ${compiled.id} requested unknown targets: ${unknownTargets.join(", ")}`
+        withHints(
+          `Pipeline ${compiled.id} requested unknown targets: ${unknownTargets.join(", ")}`,
+          targetHints(compiled.id, unknownTargets, declaredTargetIds)
+        )
       )
     );
   }
@@ -238,12 +279,21 @@ export function buildPipelinePlan<
     (stepId) => knownStepIds.has(stepId) && !declaredTargetIds.has(stepId)
   );
   if (undeclaredTargets.length > 0) {
+    const uniqueUndeclared = [...new Set(undeclaredTargets)];
     errors.push(
       pipelineDiagnostic(
         "TUBELESS_PLANNING_TARGET_UNDECLARED",
         "planning",
         "selection",
-        `Pipeline ${compiled.id} requested undeclared targets: ${undeclaredTargets.join(", ")}`
+        withHints(
+          `Pipeline ${compiled.id} requested undeclared targets: ${undeclaredTargets.join(", ")}`,
+          [
+            uniqueUndeclared.length === 1
+              ? `${JSON.stringify(uniqueUndeclared[0])} is a step, not a declared target; select steps exactly with stepIds.`
+              : "These are steps, not declared targets; select steps exactly with stepIds.",
+            ...targetHints(compiled.id, undeclaredTargets, declaredTargetIds),
+          ]
+        )
       )
     );
   }

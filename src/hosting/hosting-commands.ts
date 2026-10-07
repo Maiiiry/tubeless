@@ -1,6 +1,7 @@
 import type { CliCommandDescriptor, CliContext } from "../cli/cli.js";
 import { definePipelineCommand, type PipelineCommand } from "../cli/cli-pipeline-command.js";
 import {
+  cliValidationReportLines,
   isCliHelpRequested,
   isCliValidationError,
   isPipelineExecutionError,
@@ -201,10 +202,7 @@ export async function executeHostedCommandOperation(
       return toExitCode(error);
     }
     if (isCliValidationError(error)) {
-      for (const validationError of error.errors) {
-        output.stderr.write(`Error: ${validationError}\n`);
-      }
-      output.stderr.write(`\n${error.helpText.replace(/\n+$/, "")}\n`);
+      output.stderr.write(`${cliValidationReportLines(error.errors, error.helpText).join("\n")}\n`);
       return toExitCode(error);
     }
     if (isPipelineExecutionError(error)) {

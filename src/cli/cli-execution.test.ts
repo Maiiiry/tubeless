@@ -43,15 +43,21 @@ describe("defineCommand.main", () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it("prints errors and the help text, and sets exit code 1, without throwing", async () => {
+  it("prints errors, the usage line, and a --help pointer, and sets exit code 1", async () => {
     const log = testLog();
-    const command = defineCommand({ params: { limit: { type: "number" } }, run: vi.fn() });
+    const command = defineCommand({
+      name: "toy",
+      params: { limit: { type: "number", description: "Rows to read." } },
+      run: vi.fn(),
+    });
     await command.main(["--limit", "abc"], { log });
     expect(process.exitCode).toBe(1);
-    expect(
-      log.lines.some((l) => l.level === "error" && l.message.includes("must be a number"))
-    ).toBe(true);
-    expect(log.lines.some((l) => l.message.includes("Usage:"))).toBe(true);
+    expect(log.lines.filter((l) => l.level === "error").map((l) => l.message)).toEqual([
+      'Error: --limit must be a number, got "abc"',
+      "",
+      "Usage: toy [options]",
+      "Run with --help to see all options.",
+    ]);
   });
 
   it("prints help and sets exit code 0 on --help", async () => {

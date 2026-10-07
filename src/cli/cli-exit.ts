@@ -47,6 +47,20 @@ export function isCliValidationError(
   );
 }
 
+/**
+ * Compact stderr report for rejected arguments: every error, then only the usage line
+ * and a pointer to `--help`, so the errors are not buried under the full option list.
+ */
+export function cliValidationReportLines(errors: readonly string[], helpText: string): string[] {
+  const usage = helpText.split("\n", 1)[0]!;
+  return [
+    ...errors.map((error) => `Error: ${error}`),
+    "",
+    ...(usage ? [usage] : []),
+    "Run with --help to see all options.",
+  ];
+}
+
 export function isPipelineExecutionError(
   error: unknown
 ): error is { result: { errors: PipelineError[] } } {

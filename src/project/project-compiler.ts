@@ -1,4 +1,5 @@
 import { definePipeline, requireOutputs, type Pipeline } from "../core/pipeline.js";
+import { didYouMean } from "../utilities/suggest.js";
 import { ProjectRegistryResolver, type ProjectRegistry } from "./project-registry.js";
 import { compileDocumentSteps } from "./project-step-graph.js";
 import {
@@ -98,10 +99,11 @@ export function compilePipelineDocument(
     ...(metadata === undefined ? {} : { metadata }),
     get(id: string): Pipeline<object, unknown> {
       const pipeline = compiled.get(id);
-      if (!pipeline) {
-        throw new Error(`Compiled document does not define pipeline ${JSON.stringify(id)}.`);
-      }
-      return pipeline;
+      if (pipeline) return pipeline;
+      const suggestion = didYouMean(id, compiled.keys());
+      throw new Error(
+        `Compiled document does not define pipeline ${JSON.stringify(id)}.${suggestion ? ` ${suggestion}` : ""}`
+      );
     },
   });
 }

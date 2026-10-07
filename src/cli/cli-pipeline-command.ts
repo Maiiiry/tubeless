@@ -339,7 +339,7 @@ export function definePipelineCommand<
       group: "execution",
       exclusive: true,
       choices: pipeline.stepIds,
-      description: `Run exactly this step. Steps: ${pipeline.stepIds.join(", ")}`,
+      description: "Run exactly this step.",
     },
     continueOnError: {
       type: "boolean",
@@ -363,7 +363,7 @@ export function definePipelineCommand<
       group: "execution",
       exclusive: true,
       choices: pipeline.targetIds,
-      description: `Run this declared target and its prerequisites. Targets: ${pipeline.targetIds.join(", ")}`,
+      description: "Run this declared target and its prerequisites.",
     };
   }
 

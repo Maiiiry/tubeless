@@ -337,6 +337,11 @@ read when a pipeline needs them.
   exposes `agentHistory.agents`. The pipeline filter selects the root while its
   detail includes descendants with other pipeline IDs. Raw `--events` remains
   run-scoped. Treat missing observations as unknown, not successful execution.
+  Scripts should pass full run IDs; unique prefixes are a terminal convenience and
+  become ambiguous as history grows.
+- CLI errors append `Did you mean …?` for near-miss commands, flags, choices,
+  pipeline IDs, targets, steps, and run IDs. Apply the hint rather than guessing,
+  and use `tubeless list` or `--help` when no hint is shown.
 
 ### Declarative documents
 

@@ -185,6 +185,56 @@ describe("defineCommand: unknown/malformed args", () => {
       })
     ).toThrow(/Duplicate --verbose flag/);
   });
+
+  it("suggests the closest long flag, including --no- forms and --help", () => {
+    const command = defineCommand({
+      params: { source: { type: "string", optional: true }, verbose: { type: "boolean" } },
+      run: (v) => v,
+    });
+    const errors = (argv: string[]) => {
+      const result = command.parse(argv);
+      return result.kind === "error" ? result.errors : [];
+    };
+    expect(errors(["--sourc=x"])).toEqual(["Unknown option: --sourc=x. Did you mean --source?"]);
+    expect(errors(["--no-verbos"])).toEqual([
+      "Unknown option: --no-verbos. Did you mean --no-verbose?",
+    ]);
+    expect(errors(["--hepl"])).toEqual(["Unknown option: --hepl. Did you mean --help?"]);
+    expect(errors(["--bogus"])).toEqual(["Unknown option: --bogus"]);
+  });
+
+  it("treats the token after an unknown flag as its value instead of a stray argument", () => {
+    const command = defineCommand({ params: { source: { type: "string" } }, run: (v) => v });
+    const result = command.parse(["--sourc", "x"]);
+    expect(result.kind === "error" && result.errors).toEqual([
+      "Unknown option: --sourc. Did you mean --source?",
+      "Missing required option --source",
+    ]);
+  });
+
+  it("still reports stray arguments beyond the unknown flag's value", () => {
+    const command = defineCommand({ params: {}, run: (v) => v });
+    const result = command.parse(["--bogus", "a", "b"]);
+    expect(result.kind === "error" && result.errors).toEqual([
+      "Unknown option: --bogus",
+      "Unexpected argument: b",
+    ]);
+  });
+
+  it("suggests the closest choice for a mistyped value", () => {
+    const command = defineCommand({
+      params: { format: { type: "string", choices: ["json", "yaml"] } },
+      run: (v) => v,
+    });
+    const near = command.parse(["--format", "jsno"]);
+    expect(near.kind === "error" && near.errors).toEqual([
+      '--format must be one of: json, yaml (got "jsno"). Did you mean "json"?',
+    ]);
+    const far = command.parse(["--format", "xml"]);
+    expect(far.kind === "error" && far.errors).toEqual([
+      '--format must be one of: json, yaml (got "xml")',
+    ]);
+  });
 });
 
 describe("defineCommand: --help", () => {
@@ -226,6 +276,43 @@ describe("defineCommand: --help", () => {
     });
     const result = command.parse(["--help"]);
     expect(result.kind === "help" && result.helpText).toContain("must be a directory");
+  });
+
+  it("lists domain options before a separate pipeline-controls section with bracketed metadata", () => {
+    const command = defineCommand({
+      name: "import",
+      params: {
+        source: { type: "string", description: "Source to import." },
+        limit: { type: "number", integer: true, min: 1, default: 10, description: "Rows." },
+        format: { type: "string", choices: ["json", "yaml"], optional: true },
+        tag: { type: "string", multiple: true, description: "Tag rows." },
+        token: { type: "string", env: "TOKEN", description: "API token." },
+        verbose: { type: "boolean", short: "v", default: true, description: "Talk more." },
+        quiet: { type: "boolean", description: "Talk less." },
+        workers: { type: "number", group: "execution", default: 2, description: "Workers." },
+      },
+      run: () => undefined,
+    });
+    const result = command.parse(["--help"]);
+    expect(result.kind === "help" && result.helpText).toBe(
+      [
+        "Usage: import [options]",
+        "",
+        "Options:",
+        "  --source <string>   Source to import. [required]",
+        "  --limit <number>    Rows. [integer, min: 1, default: 10]",
+        "  --format <string>   [one of: json, yaml]",
+        "  --tag <string...>   Tag rows. [repeatable]",
+        "  --token <string>    API token. [required, env: TOKEN]",
+        "  -v, --verbose       Talk more. [default: true]",
+        "  --quiet             Talk less.",
+        "  -h, --help          Show this help message.",
+        "",
+        "Pipeline controls:",
+        "  --dry-run           Preview without making changes.",
+        "  --workers <number>  Workers. [default: 2]",
+      ].join("\n")
+    );
   });
 });
 

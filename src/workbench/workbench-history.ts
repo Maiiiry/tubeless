@@ -1,3 +1,4 @@
+import { didYouMean } from "../utilities/suggest.js";
 import { cacheArtifactMetadata } from "../run-store/cache-artifact.js";
 import { stat } from "node:fs/promises";
 import * as path from "node:path";
@@ -5,7 +6,6 @@ import {
   createPipelineRunProjector,
   type PipelineRunEventQuery,
   type PipelineRunEventReader,
-  type StoredPipelineEvent,
   type StoredPipelineRun,
 } from "../run-store/run-store.js";
 import { readPipelineEventPages, readPipelineRunTree } from "../run-store/run-store-reader.js";
@@ -74,13 +74,92 @@ function summarizeRun(run: StoredPipelineRun): HistoryRunSummary {
   return summary;
 }
 
-function formatRunListLine(run: StoredPipelineRun): string {
-  const started = new Date(run.startedAtMs).toISOString();
-  const duration = run.durationMs === undefined ? "" : `  ${run.durationMs}ms`;
-  const correlation = run.correlationId
-    ? `  correlation ${terminalSafeText(run.correlationId)}`
-    : "";
-  return `${terminalSafeText(run.runId)}  ${terminalSafeText(run.pipelineId)}  ${run.status}${correlation}  started ${started}${duration}`;
+function formatRunList(runs: readonly StoredPipelineRun[]): string {
+  const rows = runs.map((run) => [
+    terminalSafeText(run.runId),
+    terminalSafeText(run.pipelineId),
+    run.status,
+    run.correlationId ? `correlation ${terminalSafeText(run.correlationId)}` : "",
+    `started ${new Date(run.startedAtMs).toISOString()}`,
+    run.durationMs === undefined ? "" : `${run.durationMs}ms`,
+  ]);
+  const widths = (rows[0] ?? []).map((_, column) =>
+    Math.max(...rows.map((row) => row[column]!.length))
+  );
+  // Columns no run fills are dropped; the trailing columns are tool-generated, so trimEnd only
+  // removes padding.
+  const lines = rows.map((row) =>
+    row
+      .flatMap((cell, column) => (widths[column] ? [cell.padEnd(widths[column])] : []))
+      .join("  ")
+      .trimEnd()
+  );
+  return `${lines.join("\n")}\n`;
+}
+
+/** Shortest fragment `history <run-id>` resolves by prefix; shorter input must match exactly. */
+const MIN_RUN_ID_PREFIX_LENGTH = 4;
+const MAX_AMBIGUOUS_RUN_IDS = 5;
+
+/** The part after a run id's first `:` (the generated UUID), or the whole id without one. */
+function runIdSuffix(runId: string): string {
+  return runId.slice(runId.indexOf(":") + 1);
+}
+
+type RunIdResolution = { runId: string } | { error: string };
+
+/**
+ * Resolve a run id that matched nothing exactly as a unique prefix of a full run id or of
+ * its UUID part. `listCommand` is the history invocation that lists the searched runs.
+ */
+function resolveRunIdPrefix(
+  input: string,
+  runs: readonly StoredPipelineRun[],
+  listCommand: string
+): RunIdResolution {
+  const matches =
+    input.length < MIN_RUN_ID_PREFIX_LENGTH
+      ? []
+      : runs.filter(
+          (run) => run.runId.startsWith(input) || runIdSuffix(run.runId).startsWith(input)
+        );
+  if (matches.length === 1) return { runId: matches[0]!.runId };
+  if (matches.length > 1) {
+    const shown = matches.slice(0, MAX_AMBIGUOUS_RUN_IDS);
+    const hidden = matches.length - shown.length;
+    return {
+      error: [
+        `Run id ${JSON.stringify(input)} is ambiguous; it matches ${matches.length} runs:`,
+        ...shown.map((run) => `  ${terminalSafeText(run.runId)}`),
+        ...(hidden > 0 ? [`  …and ${hidden} more`] : []),
+      ].join("\n"),
+    };
+  }
+  // Compare full ids against full ids and bare UUIDs against UUIDs; always suggest full ids.
+  const candidates = new Map(
+    runs.map((run) => [input.includes(":") ? run.runId : runIdSuffix(run.runId), run.runId])
+  );
+  const suggestion = didYouMean(input, candidates.keys(), (candidate) =>
+    JSON.stringify(candidates.get(candidate))
+  );
+  return {
+    error: [
+      `Unknown run ${JSON.stringify(input)}.${suggestion ? ` ${suggestion}` : ""}`,
+      terminalSafeText(`Run "${listCommand}" to list recorded runs.`),
+    ].join("\n"),
+  };
+}
+
+function shellWord(value: string): string {
+  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function historyListCommand(values: { pipeline?: string; store?: string; trace?: string }): string {
+  const words = ["tubeless", "history"];
+  if (values.store !== undefined) words.push("--store", shellWord(values.store));
+  if (values.trace !== undefined) words.push("--trace", shellWord(values.trace));
+  if (values.pipeline !== undefined) words.push("--pipeline", shellWord(values.pipeline));
+  return words.join(" ");
 }
 
 function formatRunDetail(run: StoredPipelineRun): string {
@@ -93,32 +172,29 @@ function formatRunDetail(run: StoredPipelineRun): string {
   if (run.correlationId) lines.splice(1, 0, `Correlation ${terminalSafeText(run.correlationId)}`);
   if (run.durationMs !== undefined) lines.push(`Duration ${run.durationMs}ms`);
   lines.push("", "Steps:");
-  for (const step of run.steps) {
-    const duration = step.durationMs === undefined ? "" : `  ${step.durationMs}ms`;
-    lines.push(`  ${terminalSafeText(step.id)}  ${step.status}${duration}`);
+  const stepIds = run.steps.map((step) => terminalSafeText(step.id));
+  const idWidth = Math.max(0, ...stepIds.map((id) => id.length));
+  const statusWidth = Math.max(0, ...run.steps.map((step) => step.status.length));
+  for (const [index, step] of run.steps.entries()) {
+    const columns = [stepIds[index]!.padEnd(idWidth), step.status.padEnd(statusWidth)];
+    if (step.durationMs !== undefined) columns.push(`${step.durationMs}ms`);
+    lines.push(`  ${columns.join("  ").trimEnd()}`);
     for (const entry of step.artifacts ?? []) {
       lines.push(
         `    ${entry.preview ? "preview " : ""}${cacheArtifactMetadata(entry.artifact) ? "Cached output " : ""}${entry.operation}  ${terminalSafeText(JSON.stringify(entry.artifact))}`
       );
     }
   }
-  lines.push("", "Logs:");
-  for (const log of run.logs) {
-    lines.push(`  [${log.level}] ${terminalSafeText(log.message)}`);
+  if (run.logs.length > 0) {
+    lines.push("", "Logs:");
+    for (const log of run.logs) {
+      lines.push(`  [${log.level}] ${terminalSafeText(log.message)}`);
+    }
   }
   if (run.error) {
     lines.push("", "Error:", `  ${run.error.code}  ${terminalSafeText(run.error.message)}`);
   }
   return `${lines.join("\n")}\n`;
-}
-
-async function writeEvents(
-  io: WorkbenchCliIo,
-  events: readonly StoredPipelineEvent[]
-): Promise<void> {
-  for (const event of events) {
-    await writeCliChunk(io.stdout, `${JSON.stringify(event)}\n`);
-  }
 }
 
 export async function runHistory(argv: readonly string[], io: WorkbenchCliIo): Promise<number> {
@@ -164,6 +240,8 @@ export async function runHistory(argv: readonly string[], io: WorkbenchCliIo): P
         }
 
         const runId = parsed.positionals[0];
+        const usingDefaultStore =
+          parsed.values.store === undefined && parsed.values.trace === undefined;
         const filename = path.resolve(
           commandIo.cwd,
           parsed.values.trace ?? parsed.values.store ?? DEFAULT_PIPELINE_RUN_STORE
@@ -172,7 +250,10 @@ export async function runHistory(argv: readonly string[], io: WorkbenchCliIo): P
           await stat(filename);
         } catch {
           commandIo.stderr.write(
-            `Error: ${parsed.values.trace ? "Trace artifact" : "Run store"} not found at ${filename}\n`
+            `Error: ${parsed.values.trace ? "Trace artifact" : "Run store"} not found at ${filename}\n` +
+              (usingDefaultStore
+                ? `Record runs with: tubeless run --store ${DEFAULT_PIPELINE_RUN_STORE} <pipeline> [-- <args>]\n`
+                : "")
           );
           return TUBELESS_WORKBENCH_EXIT_CODE.load;
         }
@@ -214,36 +295,60 @@ export async function runHistory(argv: readonly string[], io: WorkbenchCliIo): P
           commandIo.stderr.write(`Error: ${errorMessage(error)}\n`);
           return TUBELESS_WORKBENCH_EXIT_CODE.load;
         }
-        const query: PipelineRunEventQuery = runId === undefined ? {} : { runId };
-        if (parsed.values.pipeline !== undefined) query.pipelineId = parsed.values.pipeline;
+        const scope: PipelineRunEventQuery =
+          parsed.values.pipeline === undefined ? {} : { pipelineId: parsed.values.pipeline };
+        const writeEvents = async (query: PipelineRunEventQuery): Promise<number> => {
+          let eventCount = 0;
+          for await (const page of readPipelineEventPages(store, query)) {
+            for (const event of page) {
+              await writeCliChunk(commandIo.stdout, `${JSON.stringify(event)}\n`);
+            }
+            eventCount += page.length;
+          }
+          return eventCount;
+        };
+        const projectRuns = async (
+          query: PipelineRunEventQuery,
+          retainLogs: boolean
+        ): Promise<StoredPipelineRun[]> => {
+          const projector = createPipelineRunProjector({ retainLogs, retainArtifacts: retainLogs });
+          for await (const page of readPipelineEventPages(store, query)) projector.append(page);
+          return projector.snapshot().runs;
+        };
+        const projectRun = async (id: string): Promise<StoredPipelineRun | undefined> =>
+          (await projectRuns({ ...scope, runId: id }, true)).find((run) => run.runId === id);
+        // Exact ids read only that run's events; only a miss scans every run for a prefix match.
+        const resolveRunId = async (input: string): Promise<string | undefined> => {
+          const resolution = resolveRunIdPrefix(
+            input,
+            await projectRuns(scope, false),
+            historyListCommand(parsed.values)
+          );
+          if ("runId" in resolution) return resolution.runId;
+          commandIo.stderr.write(`Error: ${resolution.error}\n`);
+          return undefined;
+        };
         try {
           if (parsed.values.events) {
-            let eventCount = 0;
-            for await (const page of readPipelineEventPages(store, query)) {
-              await writeEvents(commandIo, page);
-              eventCount += page.length;
+            if (runId === undefined) {
+              await writeEvents(scope);
+              return TUBELESS_WORKBENCH_EXIT_CODE.success;
             }
-            if (runId !== undefined && eventCount === 0) {
-              return writeUsageError(
-                commandIo,
-                `Unknown run ${JSON.stringify(runId)}.`,
-                HISTORY_USAGE
-              );
+            if ((await writeEvents({ ...scope, runId })) === 0) {
+              const resolved = await resolveRunId(runId);
+              if (resolved === undefined) return TUBELESS_WORKBENCH_EXIT_CODE.usage;
+              await writeEvents({ ...scope, runId: resolved });
             }
             return TUBELESS_WORKBENCH_EXIT_CODE.success;
           }
 
-          const projector = createPipelineRunProjector({ retainLogs: runId !== undefined });
-          for await (const page of readPipelineEventPages(store, query)) projector.append(page);
-          const snapshot = projector.snapshot();
           if (runId !== undefined) {
-            const run = snapshot.runs.find((candidate) => candidate.runId === runId);
+            let run = await projectRun(runId);
             if (!run) {
-              return writeUsageError(
-                commandIo,
-                `Unknown run ${JSON.stringify(runId)}.`,
-                HISTORY_USAGE
-              );
+              const resolved = await resolveRunId(runId);
+              if (resolved === undefined) return TUBELESS_WORKBENCH_EXIT_CODE.usage;
+              run = await projectRun(resolved);
+              if (!run) throw new Error(`Run ${JSON.stringify(resolved)} left the store mid-read.`);
             }
             const agentHistory = projectAgentHistory(await readPipelineRunTree(store, run));
             const detail = agentHistory.agents.length ? { ...run, agentHistory } : run;
@@ -257,19 +362,15 @@ export async function runHistory(argv: readonly string[], io: WorkbenchCliIo): P
             return TUBELESS_WORKBENCH_EXIT_CODE.success;
           }
 
+          const runs = await projectRuns(scope, false);
           if (parsed.values.json) {
             await writeCliChunk(
               commandIo.stdout,
-              `${JSON.stringify({ runs: snapshot.runs.map(summarizeRun) }, null, 2)}\n`
+              `${JSON.stringify({ runs: runs.map(summarizeRun) }, null, 2)}\n`
             );
             return TUBELESS_WORKBENCH_EXIT_CODE.success;
           }
-          if (snapshot.runs.length > 0) {
-            await writeCliChunk(
-              commandIo.stdout,
-              `${snapshot.runs.map(formatRunListLine).join("\n")}\n`
-            );
-          }
+          if (runs.length > 0) await writeCliChunk(commandIo.stdout, formatRunList(runs));
           return TUBELESS_WORKBENCH_EXIT_CODE.success;
         } catch (error) {
           commandIo.stderr.write(`Error: ${errorMessage(error)}\n`);

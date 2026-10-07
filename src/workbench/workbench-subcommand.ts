@@ -1,4 +1,5 @@
 import { parseArgs, type ParseArgsConfig } from "node:util";
+import { didYouMean } from "../utilities/suggest.js";
 import {
   errorMessage,
   TUBELESS_WORKBENCH_EXIT_CODE,
@@ -69,7 +70,7 @@ export async function runWorkbenchSubcommand<TParsed extends ParsedSubcommand>(
   try {
     parsed = command.parse(argv);
   } catch (error) {
-    return writeUsageError(io, errorMessage(error), command.usage);
+    return writeUsageError(io, parseErrorMessage(error, command.usage), command.usage);
   }
   if (parsed.values.help === true) {
     io.stdout.write(command.usage);
@@ -80,4 +81,24 @@ export async function runWorkbenchSubcommand<TParsed extends ParsedSubcommand>(
     return writeUsageError(io, positionalError.message, command.usage);
   }
   return command.run(parsed, io);
+}
+
+/**
+ * `node:util` `parseArgs` rejects unknown flags with a verbose message naming the
+ * offending token. Report it in the same shape as pipeline commands. The usage
+ * text documents every long flag a subcommand accepts, so near-misses are
+ * suggested from it without a second option list.
+ */
+function parseErrorMessage(error: unknown, usage: string): string {
+  const message = errorMessage(error);
+  if ((error as { code?: unknown } | null)?.code !== "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
+    return message;
+  }
+  const token = /^Unknown option '([^']+)'/.exec(message)?.[1];
+  if (token === undefined) return message;
+  const unknown = `Unknown option: ${token}.`;
+  if (!token.startsWith("--")) return unknown;
+  const flags = usage.match(/--[a-z][a-z0-9-]*/g) ?? [];
+  const suggestion = didYouMean(token.split("=", 1)[0], flags, (candidate) => candidate);
+  return suggestion === undefined ? unknown : `${unknown} ${suggestion}`;
 }

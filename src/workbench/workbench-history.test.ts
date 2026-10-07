@@ -212,7 +212,7 @@ describe("runHistory", () => {
     expect(helpIo.output.join("")).toContain("Filter by recorded pipeline ID");
   });
 
-  it("lists one line per recorded run", async () => {
+  it("lists one aligned line per recorded run", async () => {
     const directory = await tempDir();
     const storePath = path.join(directory, "runs.sqlite");
     await seedStore(storePath, [...failedRunEvents, ...secondRunEvents]);
@@ -222,17 +222,12 @@ describe("runHistory", () => {
 
     expect(exitCode).toBe(TUBELESS_WORKBENCH_EXIT_CODE.success);
     expect(io.errors).toEqual([]);
-    const lines = io.output
-      .join("")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    expect(lines).toHaveLength(2);
-    expect(lines).toEqual(
-      expect.arrayContaining([
-        "run-failed  import  failed  started 2023-11-14T22:13:20.000Z  7ms",
-        "run-ok  publish  completed  started 2023-11-14T22:13:20.100Z  3ms",
-      ])
+    expect(io.output.join("")).toBe(
+      [
+        "run-ok      publish  completed  started 2023-11-14T22:13:20.100Z  3ms",
+        "run-failed  import   failed     started 2023-11-14T22:13:20.000Z  7ms",
+        "",
+      ].join("\n")
     );
   });
 
@@ -486,7 +481,18 @@ describe("runHistory", () => {
     expect(io.errors.join("")).toBe(`Error: Run store not found at ${storePath}\n`);
   });
 
-  it("reports an unknown run id as a usage error", async () => {
+  it("explains how to record runs when the default store is missing", async () => {
+    const directory = await tempDir();
+    const io = captureIo(directory);
+
+    expect(await runHistory([], io)).toBe(TUBELESS_WORKBENCH_EXIT_CODE.load);
+    expect(io.errors.join("")).toBe(
+      `Error: Run store not found at ${path.join(directory, ".tubeless", "runs.sqlite")}\n` +
+        "Record runs with: tubeless run --store .tubeless/runs.sqlite <pipeline> [-- <args>]\n"
+    );
+  });
+
+  it("reports an unknown run id with a listing hint instead of usage", async () => {
     const directory = await tempDir();
     const storePath = path.join(directory, "runs.sqlite");
     await seedStore(storePath, failedRunEvents);
@@ -495,7 +501,167 @@ describe("runHistory", () => {
     const exitCode = await runHistory(["--store", storePath, "missing-run"], io);
 
     expect(exitCode).toBe(TUBELESS_WORKBENCH_EXIT_CODE.usage);
-    expect(io.errors.join("")).toContain('Error: Unknown run "missing-run".');
-    expect(io.errors.join("")).toContain("Usage: tubeless history [options] [run-id]");
+    expect(io.errors.join("")).toBe(
+      'Error: Unknown run "missing-run".\n' +
+        `Run "tubeless history --store ${storePath}" to list recorded runs.\n`
+    );
+  });
+
+  it("omits the Logs section when a run recorded no logs", async () => {
+    const directory = await tempDir();
+    const storePath = path.join(directory, "runs.sqlite");
+    await seedStore(storePath, secondRunEvents);
+    const io = captureIo(directory);
+
+    expect(await runHistory(["--store", storePath, "run-ok"], io)).toBe(
+      TUBELESS_WORKBENCH_EXIT_CODE.success
+    );
+    expect(io.output.join("")).toContain("Run run-ok");
+    expect(io.output.join("")).not.toContain("Logs:");
+  });
+
+  describe("run id prefixes", () => {
+    const firstImport = "import:2dc3469d-9e02-4448-bb36-c42d7f59562d";
+    const secondImport = "import:2dc3f00d-1111-4222-8333-944444444444";
+    const publish = "publish:9f1e0c2a-5555-4666-8777-988888888888";
+
+    function completedRun(pipelineId: string, runId: string, timestampMs: number) {
+      return [
+        event("pipeline.started", { pipelineId, runId, timestampMs }),
+        event("pipeline.completed", {
+          durationMs: 1,
+          pipelineId,
+          runId,
+          timestampMs: timestampMs + 1,
+        }),
+      ];
+    }
+
+    async function prefixStore(): Promise<{ directory: string; storePath: string }> {
+      const directory = await tempDir();
+      const storePath = path.join(directory, "runs.sqlite");
+      await seedStore(storePath, [
+        ...completedRun("import", firstImport, 1_700_000_000_000),
+        ...completedRun("import", secondImport, 1_700_000_000_100),
+        ...completedRun("publish", publish, 1_700_000_000_200),
+      ]);
+      return { directory, storePath };
+    }
+
+    it("resolves a unique UUID or full-id prefix in text, JSON, and events modes", async () => {
+      const { directory, storePath } = await prefixStore();
+      for (const [input, runId] of [
+        ["2dc34", firstImport],
+        ["import:2dc3f", secondImport],
+        ["9f1e", publish],
+      ] as const) {
+        const textIo = captureIo(directory);
+        expect(await runHistory(["--store", storePath, input], textIo)).toBe(
+          TUBELESS_WORKBENCH_EXIT_CODE.success
+        );
+        expect(textIo.errors).toEqual([]);
+        expect(textIo.output.join("")).toContain(`Run ${runId}\n`);
+
+        const jsonIo = captureIo(directory);
+        expect(await runHistory(["--store", storePath, "--json", input], jsonIo)).toBe(
+          TUBELESS_WORKBENCH_EXIT_CODE.success
+        );
+        expect(JSON.parse(jsonIo.output.join(""))).toMatchObject({ runId });
+
+        const eventsIo = captureIo(directory);
+        expect(await runHistory(["--store", storePath, "--events", input], eventsIo)).toBe(
+          TUBELESS_WORKBENCH_EXIT_CODE.success
+        );
+        const events = eventsIo.output
+          .join("")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        expect(events).toHaveLength(2);
+        expect(events.every((next) => next.runId === runId)).toBe(true);
+      }
+    });
+
+    it("lists candidates for an ambiguous prefix in every mode", async () => {
+      const { directory, storePath } = await prefixStore();
+      for (const mode of [[], ["--json"], ["--events"]]) {
+        const io = captureIo(directory);
+        expect(await runHistory(["--store", storePath, ...mode, "2dc3"], io)).toBe(
+          TUBELESS_WORKBENCH_EXIT_CODE.usage
+        );
+        expect(io.output).toEqual([]);
+        expect(io.errors.join("")).toBe(
+          'Error: Run id "2dc3" is ambiguous; it matches 2 runs:\n' +
+            `  ${secondImport}\n  ${firstImport}\n`
+        );
+      }
+    });
+
+    it("caps ambiguous candidates at five", async () => {
+      const directory = await tempDir();
+      const storePath = path.join(directory, "runs.sqlite");
+      await seedStore(
+        storePath,
+        Array.from({ length: 7 }, (_, index) =>
+          completedRun(
+            "batch",
+            `batch:${index}0000000-0000-4000-8000-000000000000`,
+            1_700_000_000_000 + index * 10
+          )
+        ).flat()
+      );
+      const io = captureIo(directory);
+
+      expect(await runHistory(["--store", storePath, "batch"], io)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.usage
+      );
+      const lines = io.errors.join("").trimEnd().split("\n");
+      expect(lines[0]).toBe('Error: Run id "batch" is ambiguous; it matches 7 runs:');
+      expect(lines.slice(1, -1)).toHaveLength(5);
+      expect(lines.at(-1)).toBe("  …and 2 more");
+    });
+
+    it("matches prefixes only within the --pipeline filter", async () => {
+      const { directory, storePath } = await prefixStore();
+      const scopedIo = captureIo(directory);
+      expect(
+        await runHistory(["--store", storePath, "--pipeline", "import", "2dc3f"], scopedIo)
+      ).toBe(TUBELESS_WORKBENCH_EXIT_CODE.success);
+      expect(scopedIo.output.join("")).toContain(`Run ${secondImport}\n`);
+
+      const filteredIo = captureIo(directory);
+      expect(
+        await runHistory(["--store", storePath, "--pipeline", "publish", "2dc34"], filteredIo)
+      ).toBe(TUBELESS_WORKBENCH_EXIT_CODE.usage);
+      expect(filteredIo.errors.join("")).toBe(
+        'Error: Unknown run "2dc34".\n' +
+          `Run "tubeless history --store ${storePath} --pipeline publish" to list recorded runs.\n`
+      );
+    });
+
+    it("suggests close run ids but never resolves fragments under four characters", async () => {
+      const { directory, storePath } = await prefixStore();
+      const shortIo = captureIo(directory);
+      expect(await runHistory(["--store", storePath, "9f1"], shortIo)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.usage
+      );
+      expect(shortIo.errors.join("")).toContain(
+        `Error: Unknown run "9f1". Did you mean ${JSON.stringify(publish)}?\n`
+      );
+
+      const typoIo = captureIo(directory);
+      const typo = publish.replace("publish", "pubilsh");
+      expect(await runHistory(["--store", storePath, typo], typoIo)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.usage
+      );
+      expect(typoIo.errors.join("")).toContain(`Did you mean ${JSON.stringify(publish)}?`);
+
+      const farIo = captureIo(directory);
+      expect(await runHistory(["--store", storePath, "zzzzzzzz"], farIo)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.usage
+      );
+      expect(farIo.errors.join("")).not.toContain("Did you mean");
+      expect(farIo.errors.join("")).not.toContain("Usage:");
+    });
   });
 });

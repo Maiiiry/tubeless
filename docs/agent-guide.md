@@ -437,6 +437,13 @@ read when a pipeline needs them.
   Use `bun run eval:agent`
   for opt-in paid workspace evaluations; routine CI stays credential-free.
 
+- To give an agent MCP server tools, `await connectMcpServers({ name: { url } | { command } })`
+  from `tubeless/agent/mcp` and pass `tools: mcp.tools` (named `<server>__<tool>`).
+  Connect inside the function that runs the agent, not at module scope, and close
+  the servers afterwards (`await using`). Inventories are fixed at connection.
+  Read [MCP servers](./agents.md#connect-mcp-servers) and adapt the
+  [MCP recipe](../examples/agent-mcp.ts).
+
 - Use `defineAgent`, `defineTool`, and `pipelineTool` from `tubeless/agent` for an in-process
   decision loop over registered handlers, pipelines, and child agents. Read [agents](./agents.md) and
   adapt the credential-free [scripted recipe](../examples/agent.ts) or the

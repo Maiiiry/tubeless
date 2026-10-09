@@ -436,6 +436,55 @@ The compiled turn graph stays `decide -> calls -> reduce`. Its execution history
 expands with each chosen batch and turn; a model cannot rewrite dependency edges
 or add tool-registry entries. The registered `bash` tool executes model-supplied commands.
 
+## Connect MCP servers
+
+The optional `tubeless/agent/mcp` entrypoint connects
+[Model Context Protocol](https://modelcontextprotocol.io) servers and exposes
+their tools to any agent. It is dependency-free and speaks Streamable HTTP
+(`url`) and local stdio (`command`); the generic agent entrypoint never imports it.
+
+```ts
+import { defineModelAgent } from "tubeless/agent";
+import { connectMcpServers } from "tubeless/agent/mcp";
+import { openaiModel } from "tubeless/agent/openai";
+
+await using mcp = await connectMcpServers({
+  docs: { url: "https://mcp.example.com/mcp", headers: { Authorization: `Bearer ${token}` } },
+  files: { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "."] },
+});
+const agent = defineModelAgent({ id: "mcp-agent", model: openaiModel(), tools: mcp.tools });
+```
+
+Tools are named `<server>__<tool>`, with characters outside `[A-Za-z0-9_-]`
+replaced by `_`; server names use letters, digits and hyphens. `tools` is an
+ordinary registry: spread it beside custom tools or pass `tools: ["name"]` per
+server to expose only an allowlist. Each server accepts `timeoutMs` (default 60000) per request.
+
+Inventories are discovered once at connection, so the agent definition, its
+capability fingerprints and durable checkpoints see a fixed set. A server that
+changes its tools changes the agent's definition identity. Connect inside the
+function that runs the agent rather than at module scope, so importing a project
+starts no processes, and close the connection after the last run, as in the
+[MCP recipe](../examples/agent-mcp.ts). Calls after `close()` fail.
+
+MCP input schemas are rewritten to the strict form model providers require:
+optional properties become required and nullable, every object is closed, and
+local `$defs` references are inlined. Nulls supplied for optional properties are
+removed before the call. Free-form objects and recursive references are not
+supported. Arguments are structurally validated before dispatch; the server
+validates the rest.
+
+Results are `{ content, structuredContent? }` from the server. A result with
+`isError` becomes a recoverable `MCP_TOOL_ERROR` observation, and JSON-RPC errors
+such as unknown arguments become `MCP_PROTOCOL_ERROR`. Timeouts, transport
+failures and exited servers are fatal. Cancellation sends
+`notifications/cancelled` to the server. MCP tools keep the default
+`replay: "unsafe"` and are skipped in dry runs; server annotations are not
+trusted to change either. The client declares no sampling, roots or elicitation
+capabilities and answers only `ping`. Stdio servers inherit the host environment
+plus `env`, and HTTP headers are sent as given: each server is a separate
+authority outside `AgentEnvironment`.
+
 ## Define tools and an agent
 
 Every `defineAgent` includes `read`, `write`, `edit`, `bash`, `list`, and `search`,

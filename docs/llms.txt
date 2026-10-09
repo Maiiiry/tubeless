@@ -79,6 +79,7 @@ Executable examples:
 - ../examples/agent-model.ts
 - ../examples/agent-model-anthropic.ts
 - ../examples/agent-openai.ts
+- ../examples/agent-mcp.ts
 - ../examples/agent-delegation.ts
 - ../examples/agent-pipeline.ts
 - ../examples/agent-workspace.ts

@@ -267,6 +267,20 @@
       "specifier": "tubeless/agent/openai"
     },
     {
+      "declaration": "./dist/agent/mcp.d.ts",
+      "exports": [
+        "connectMcpServers",
+        "McpHttpOptions",
+        "McpServer",
+        "McpServers",
+        "McpStdioOptions",
+        "McpTool",
+        "McpToolResult"
+      ],
+      "sha256": "3a3274d18722ab45ca2aa785d893b1a25695403ccea7c1035189875ba8367373",
+      "specifier": "tubeless/agent/mcp"
+    },
+    {
       "declaration": "./dist/agent/anthropic.d.ts",
       "exports": ["anthropicModel", "AnthropicModelOptions"],
       "sha256": "29cf945ffc07c4adda8b206eb23ac02fd279957c12ee6a7f205ca8d806f10412",

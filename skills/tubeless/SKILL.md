@@ -153,6 +153,11 @@ Read the corresponding package recipe before using these features:
   context-loading scope, byte bounds and live-evaluation instructions. Custom
   `defineAgent` and `decide` remain the lower-level path.
 
+- `connectMcpServers` from `tubeless/agent/mcp` to attach MCP server tools
+  (`<server>__<tool>`) to any agent via `tools: mcp.tools`. Connect inside the
+  function that runs the agent and close afterwards; read `docs/agents.md` and
+  `examples/agent-mcp.ts`.
+
 - `defineAgent`, `defineTool`, and `pipelineTool` from `tubeless/agent` for bounded in-process
   decisions over registered handlers, pipelines, and subagents. Read `docs/agents.md` and
   `examples/agent.ts`; use `examples/agent-openai.ts` for a real Responses API

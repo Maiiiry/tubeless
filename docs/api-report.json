@@ -265,6 +265,28 @@
       "exports": ["openaiModel", "OpenAIModelOptions"],
       "sha256": "a069637d0c00736ef67c7ef13f3ca798672171ffb434fae52df7ecd1cc0a784a",
       "specifier": "tubeless/agent/openai"
+    },
+    {
+      "declaration": "./dist/cloudflare/cloudflare.d.ts",
+      "exports": [
+        "CloudflareApp",
+        "CloudflareAppOptions",
+        "CloudflareDurableObjectClass",
+        "CloudflareWorker",
+        "createCloudflareApp",
+        "createR2CacheStore",
+        "jsonCacheCodec",
+        "R2BucketLike",
+        "R2ObjectLike"
+      ],
+      "sha256": "4ad15d4c8feeedf6decc5490e12a7c5b495bc4abcc7fbbeebf7a3fd5a6c01867",
+      "specifier": "tubeless/cloudflare"
+    },
+    {
+      "declaration": "./dist/cloudflare/cloudflare-cache.d.ts",
+      "exports": ["createR2CacheStore", "jsonCacheCodec", "R2BucketLike", "R2ObjectLike"],
+      "sha256": "1ef4f5fbc3032f0fa2f61f3985d20cb41491c3d0477ba2757e5af97bb83364c9",
+      "specifier": "tubeless/cloudflare/cache"
     }
   ],
   "packageName": "tubeless",

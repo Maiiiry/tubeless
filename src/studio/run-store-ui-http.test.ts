@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  errorResponse,
   formatHttpUrlHost,
-  isLiteralOrLocalhostHttpHost,
   isUnspecifiedHttpHost,
+  jsonResponse,
   normalizeHttpAuthority,
   parseHttpAuthority,
+  readJsonBody,
+  StudioRequestError,
+  unexpectedStudioErrorResponse,
 } from "./run-store-ui-http.js";
 
 describe("studio HTTP authorities", () => {
@@ -35,21 +39,60 @@ describe("studio HTTP authorities", () => {
     expect(isUnspecifiedHttpHost("::1")).toBe(false);
   });
 
-  it("accepts localhost and literal IPs as wildcard Host names", () => {
-    expect(isLiteralOrLocalhostHttpHost("localhost")).toBe(true);
-    expect(isLiteralOrLocalhostHttpHost("LOCALHOST")).toBe(true);
-    expect(isLiteralOrLocalhostHttpHost("127.0.0.1")).toBe(true);
-    expect(isLiteralOrLocalhostHttpHost("192.0.2.10")).toBe(true);
-    expect(isLiteralOrLocalhostHttpHost("::1")).toBe(true);
-    expect(isLiteralOrLocalhostHttpHost("[::1]")).toBe(true);
-    expect(isLiteralOrLocalhostHttpHost("evil.example")).toBe(false);
-    expect(isLiteralOrLocalhostHttpHost("0.0.0.0")).toBe(true);
-  });
-
   it("splits a normalized authority into hostname and port", () => {
     expect(parseHttpAuthority("127.0.0.1:4317")).toEqual({ hostname: "127.0.0.1", port: "4317" });
     expect(parseHttpAuthority("[::1]:4317")).toEqual({ hostname: "::1", port: "4317" });
     expect(parseHttpAuthority("127.0.0.1:80")).toEqual({ hostname: "127.0.0.1", port: "" });
     expect(parseHttpAuthority(undefined)).toBeUndefined();
+  });
+});
+
+describe("fetch-native Studio responses", () => {
+  it("formats JSON with no-store and nosniff headers", async () => {
+    const response = jsonResponse({ ok: true }, 201, { etag: '"x"' });
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("etag")).toBe('"x"');
+    expect(await response.json()).toEqual({ ok: true });
+  });
+
+  it("formats errors as code, hint and message", async () => {
+    const response = errorResponse(404, "not_found", "Missing.", "Retry.");
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      code: "not_found",
+      hint: "Retry.",
+      message: "Missing.",
+    });
+  });
+
+  it("hides unexpected error details", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = unexpectedStudioErrorResponse(new Error("secret path"));
+    spy.mockRestore();
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(await response.json())).not.toContain("secret path");
+  });
+
+  it("reads bounded JSON request bodies", async () => {
+    const ok = new Request("http://studio.local/", { method: "POST", body: '{"a":1}' });
+    expect(await readJsonBody(ok)).toEqual({ a: 1 });
+    const invalid = new Request("http://studio.local/", { method: "POST", body: "{" });
+    await expect(readJsonBody(invalid)).rejects.toMatchObject({
+      code: "invalid_json",
+      status: 400,
+    });
+    const large = new Request("http://studio.local/", {
+      method: "POST",
+      body: JSON.stringify({ text: "x".repeat(70_000) }),
+    });
+    await expect(readJsonBody(large)).rejects.toBeInstanceOf(StudioRequestError);
+    await expect(
+      readJsonBody(
+        new Request("http://studio.local/", { method: "POST", body: "x".repeat(70_000) })
+      )
+    ).rejects.toMatchObject({ code: "request_body_too_large", status: 413 });
   });
 });

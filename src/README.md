@@ -9,21 +9,23 @@ behind the bundled executable; their implementation modules are not public subpa
 Directory names describe internal ownership. Keep implementation tests beside
 their source files.
 
-| Directory    | Responsibility                                                                                |
-| ------------ | --------------------------------------------------------------------------------------------- |
-| `core/`      | Pipeline definitions, graph planning, execution, lifecycle and progress                       |
-| `agent/`     | In-process decision validation, handler/pipeline tools, owned state, shared subtree admission |
-| `tracing/`   | Trace contracts, internal emission and exporter composition                                   |
-| `utilities/` | Domain-independent cancellation, collections, batching, retry, rate limits and error branding |
-| `cli/`       | Argument parsing, command declarations and pipeline adaptation                                |
-| `reporter/`  | Terminal reporting and live ticker rendering                                                  |
-| `render/`    | Plan and error formatting                                                                     |
-| `run-store/` | Event reader/store contracts, projection, SQLite and NDJSON adapters                          |
-| `studio/`    | HTTP server, browser client, page, state and UI protocol                                      |
-| `project/`   | Typed pipeline projects and parsed pipeline document compilation                              |
-| `workbench/` | Module loading, executable integration and adapter wiring                                     |
-| `node/`      | Optional filesystem, path, environment, checkpoints and Node worker execution                 |
-| `testing/`   | Test runtime and executable-example integration tests                                         |
+| Directory     | Responsibility                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/`       | Pipeline definitions, graph planning, execution, lifecycle and progress                                                                      |
+| `agent/`      | In-process decision validation, handler/pipeline tools, owned state, shared subtree admission                                                |
+| `tracing/`    | Trace contracts, internal emission and exporter composition                                                                                  |
+| `utilities/`  | Domain-independent cancellation, collections, batching, retry, rate limits and error branding                                                |
+| `cli/`        | Argument parsing, command declarations and pipeline adaptation                                                                               |
+| `reporter/`   | Terminal reporting and live ticker rendering                                                                                                 |
+| `render/`     | Plan and error formatting                                                                                                                    |
+| `run-store/`  | Event reader/store contracts, projection, SQLite and NDJSON adapters                                                                         |
+| `studio/`     | HTTP server, browser client, page, state and UI protocol                                                                                     |
+| `project/`    | Typed pipeline projects and parsed pipeline document compilation                                                                             |
+| `hosting/`    | Platform-neutral deployment hosting: project commands, hosted execution, Studio host composition                                             |
+| `cloudflare/` | Cloudflare deploy target: Access, Durable Object storage and execution, public `tubeless/cloudflare` and `tubeless/cloudflare/cache` entries |
+| `workbench/`  | Module loading, executable integration and adapter wiring                                                                                    |
+| `node/`       | Optional filesystem, path, environment, checkpoints and Node worker execution                                                                |
+| `testing/`    | Test runtime and executable-example integration tests                                                                                        |
 
 ## Dependency direction
 
@@ -84,6 +86,14 @@ their source files.
   Normalize project pipelines and direct files into workbench
   registrations at loading boundaries. Commands and Studio use their lazy plan
   and command loaders rather than branching on the source kind.
+- Hosting composes CLI command adapters, project, Studio and storage contracts for
+  deployment targets. It never imports workbench, concrete storage adapters, the Node
+  HTTP listener or platform modules. Workbench and deploy-target entrypoints consume it.
+- The Cloudflare target composes hosting, Studio and storage contracts inside Durable
+  Objects. Only `cloudflare/cloudflare.ts` imports `cloudflare:workers`; nothing outside
+  `cloudflare/` imports it, and its public declarations stay structural. The
+  `tubeless/cloudflare/cache` entry (`cloudflare/cloudflare-cache.ts`) must stay free of
+  `cloudflare:` imports so project modules that use it still load in Node.
 - Type-only imports can share contracts without loading their implementation.
   Avoid creating new cross-module contracts unless the consumer needs them.
 
@@ -211,6 +221,8 @@ and interactive reporter orchestration.
 - `run-store/run-store.ts` defines the storage and snapshot contracts and coordinates
   incremental projection and caching. It groups runs by definition without reaching
   into a projection's mutable state.
+- `run-store/run-store-sql.ts` owns the shared schema, statements, row mapping and list query
+  for SQLite drivers; it imports no driver.
 - `run-store/run-projection.ts` owns one run's metadata, attempts, progress and logs.
   It retains only required fields and copies retained identities and errors at the
   boundary. `run-store/definition-projection.ts` owns definition replacement and
@@ -255,10 +267,14 @@ and interactive reporter orchestration.
   the browser's current snapshot when the revision, query and live launch IDs agree.
 - `studio/run-store-ui-api.ts` owns route behavior, command validation and API state.
   `studio/run-store-ui-http.ts` owns HTTP parsing, response formatting and authority
-  helpers. `studio/run-store-ui.ts` owns the listener, trusted-host enforcement,
-  page assets, CSP and server closure. Keep API handling behind the listener's
-  host and gateway checks. `studio/run-store-ui-hosting.ts` validates operator
-  configuration, raw mount paths, gateway credentials, and browser Origin without
+  helpers. `studio/run-store-ui-handler.ts` owns the platform-neutral request order:
+  authentication, trusted host, Origin on mutations, mount, health, page, then API.
+  `studio/run-store-ui-page.ts` builds the page and CSP from an injected client script;
+  `run-store-ui-page-node.ts` loads that script on Node. `studio/run-store-ui-node.ts`
+  bridges Node requests and responses to Fetch, and `studio/run-store-ui.ts` is only the
+  Node listener adapter: bind address, wildcard Host trust and server closure. Keep API
+  handling behind the handler's host and gateway checks. `studio/run-store-ui-hosting.ts`
+  validates operator configuration, raw mount paths and gateway credentials without
   loading stores or execution. Only the nonsecret mount enters page metadata;
   authentication remains outside core and the browser import graph.
 

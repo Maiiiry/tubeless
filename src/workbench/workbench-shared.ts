@@ -1,9 +1,7 @@
 import { stat } from "node:fs/promises";
 import * as path from "node:path";
 import type { Readable } from "node:stream";
-import type { CliContext } from "../cli/cli.js";
 import { TUBELESS_WORKBENCH_EXIT_CODE } from "../cli/cli-exit.js";
-import type { PipelineContext } from "../core/pipeline.js";
 import { loadPlanSourceModule, type WorkbenchPlanSource } from "./pipeline-module.js";
 import { tubelessErrorKind } from "../utilities/tubeless-error.js";
 
@@ -160,47 +158,7 @@ export async function loadPlanSource(
   }));
 }
 
-function writeCommandLine(
-  output: WorkbenchCliIo["stdout"] | WorkbenchCliIo["stderr"],
-  message: string,
-  ...optionalParams: string[]
-): void {
-  output.write(`${[message, ...optionalParams].join(" ")}\n`);
-}
-
-export function commandContext(
-  io: WorkbenchCliIo,
-  signal: AbortSignal,
-  pipelineContext?: Omit<PipelineContext, "cwd" | "log" | "signal">
-): CliContext {
-  const context: CliContext = {
-    cwd: io.cwd,
-    log: {
-      error: (message, ...params) =>
-        writeCommandLine(
-          io.stderr,
-          String(message ?? ""),
-          ...params.map((param) => String(param ?? ""))
-        ),
-      log: (message, ...params) =>
-        writeCommandLine(
-          io.stdout,
-          String(message ?? ""),
-          ...params.map((param) => String(param ?? ""))
-        ),
-      warn: (message, ...params) =>
-        writeCommandLine(
-          io.stderr,
-          String(message ?? ""),
-          ...params.map((param) => String(param ?? ""))
-        ),
-    },
-    reporterOutput: io.stdout,
-    signal,
-  };
-  if (pipelineContext) context.pipelineContext = pipelineContext;
-  return context;
-}
+export { hostedCommandContext as commandContext } from "../hosting/hosting-commands.js";
 
 export interface ManagedWorkbenchSignal {
   cleanup(): void;

@@ -334,6 +334,8 @@ registered command execution. Your application owns login, sessions, admin
 permission checks, TLS, private networking, and which commands are registered.
 Every admitted user can access the entire store and command catalog. This is one
 admin trust domain, with no per-user isolation or user audit trail.
+To host Studio on Cloudflare without running your own gateway, see
+[Deploy to Cloudflare](./deploy-cloudflare.md).
 
 Provision `TUBELESS_STUDIO_GATEWAY_TOKEN` through your host's secret management:
 32 cryptographically random bytes encoded as 64 hexadecimal characters. Share it

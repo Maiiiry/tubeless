@@ -85,8 +85,10 @@
     "@types/aws-lambda": "8.10.164",
     "@types/node": "22.20.5",
     "@vitest/coverage-v8": "5.0.3",
+    "cf": "1.0.0-beta.13",
     "inngest": "4.22.0",
     "knip": "6.40.0",
+    "miniflare": "5.20261006.0-alpha",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "preact": "11.0.1",
@@ -154,6 +156,16 @@
       "types": "./dist/agent/openai.d.ts",
       "import": "./dist/agent/openai.js",
       "default": "./dist/agent/openai.js"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare/cloudflare.d.ts",
+      "import": "./dist/cloudflare/cloudflare.js",
+      "default": "./dist/cloudflare/cloudflare.js"
+    },
+    "./cloudflare/cache": {
+      "types": "./dist/cloudflare/cloudflare-cache.d.ts",
+      "import": "./dist/cloudflare/cloudflare-cache.js",
+      "default": "./dist/cloudflare/cloudflare-cache.js"
     }
   }
 }

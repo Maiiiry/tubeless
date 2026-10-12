@@ -12,6 +12,16 @@ const check = process.argv.includes("--check");
 
 const clientEntryPath = resolve(packageRoot, "src/studio/run-store-ui-client-browser.ts");
 const browserBundlePath = resolve(packageRoot, "dist/studio/run-store-ui-client-browser.js");
+const cloudflareClientPath = resolve(packageRoot, "dist/cloudflare/cloudflare-studio-client.js");
+const cloudflareClientTypesPath = resolve(
+  packageRoot,
+  "dist/cloudflare/cloudflare-studio-client.d.ts"
+);
+
+/** The Workers entry cannot read files, so ship the same bundle as a string module. */
+export function cloudflareClientModule(source) {
+  return `export const PIPELINE_RUN_STUDIO_CLIENT = ${JSON.stringify(source)};\n`;
+}
 
 /** Keep compiled ESM intact for the inline module script. */
 export function compiledClientSource(js) {
@@ -45,18 +55,27 @@ const isMain =
 if (isMain) {
   const source = await bundledClientSource();
 
+  const outputs = [
+    [browserBundlePath, source],
+    [cloudflareClientPath, cloudflareClientModule(source)],
+  ];
+
   if (check) {
-    const actual = existsSync(browserBundlePath)
-      ? readFileSync(browserBundlePath, "utf8")
-      : undefined;
-    if (actual !== source) {
-      throw new Error(
-        `Generated ${relative(packageRoot, browserBundlePath)} is stale. Run: bun run build`
-      );
+    for (const [path, expected] of outputs) {
+      const actual = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+      if (actual !== expected) {
+        throw new Error(`Generated ${relative(packageRoot, path)} is stale. Run: bun run build`);
+      }
     }
   } else {
-    mkdirSync(dirname(browserBundlePath), { recursive: true });
-    writeFileSync(browserBundlePath, source);
+    for (const [path, contents] of outputs) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, contents);
+    }
+    writeFileSync(
+      cloudflareClientTypesPath,
+      "export declare const PIPELINE_RUN_STUDIO_CLIENT: string;\n"
+    );
     rmSync(`${browserBundlePath}.map`, { force: true });
     process.stdout.write(`Generated ${relative(packageRoot, browserBundlePath)}\n`);
   }

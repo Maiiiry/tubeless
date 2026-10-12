@@ -4,9 +4,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { PipelineRunEventStore, StoredPipelineEvent } from "../run-store/run-store.js";
 import { decodePipelineTraceEvent } from "../tracing/tracing-codec.js";
 import type { PipelineTraceEvent } from "../tracing/tracing.js";
-import { PIPELINE_RUN_STUDIO_SCRIPT, PIPELINE_RUN_STUDIO_STYLE } from "./run-store-ui-page.js";
+import { PIPELINE_RUN_STUDIO_STYLE } from "./run-store-ui-page.js";
+import { readStudioClientScript } from "./run-store-ui-page-node.js";
 import { connectionPresentation } from "./run-store-ui-client.js";
-import { startPipelineRunStudio, type PipelineRunStudioServer } from "./run-store-ui.js";
+import {
+  isLiteralOrLocalhostHttpHost,
+  startPipelineRunStudio,
+  type PipelineRunStudioServer,
+} from "./run-store-ui.js";
+
+const PIPELINE_RUN_STUDIO_SCRIPT = readStudioClientScript();
 
 function studioError(code: string, message: string, hint: string) {
   return { code, hint, message };
@@ -1120,5 +1127,18 @@ describe("local pipeline run studio", () => {
     } finally {
       console.error = originalError;
     }
+  });
+});
+
+describe("studio wildcard Host names", () => {
+  it("accepts localhost and literal IPs as wildcard Host names", () => {
+    expect(isLiteralOrLocalhostHttpHost("localhost")).toBe(true);
+    expect(isLiteralOrLocalhostHttpHost("LOCALHOST")).toBe(true);
+    expect(isLiteralOrLocalhostHttpHost("127.0.0.1")).toBe(true);
+    expect(isLiteralOrLocalhostHttpHost("192.0.2.10")).toBe(true);
+    expect(isLiteralOrLocalhostHttpHost("::1")).toBe(true);
+    expect(isLiteralOrLocalhostHttpHost("[::1]")).toBe(true);
+    expect(isLiteralOrLocalhostHttpHost("evil.example")).toBe(false);
+    expect(isLiteralOrLocalhostHttpHost("0.0.0.0")).toBe(true);
   });
 });

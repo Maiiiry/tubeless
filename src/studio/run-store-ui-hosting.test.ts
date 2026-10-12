@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { IncomingMessage } from "node:http";
-import { hasStudioOrigin, parseStudioHosting, studioRoute } from "./run-store-ui-hosting.js";
+import { constantTimeEqual, parseStudioHosting, studioRoute } from "./run-store-ui-hosting.js";
 
 const token = "a1".repeat(32);
-function request(rawHeaders: string[]): IncomingMessage {
-  return { rawHeaders } as IncomingMessage;
+function request(rawHeaders: string[]): Request {
+  const headers: [string, string][] = [];
+  for (let index = 0; index < rawHeaders.length; index += 2) {
+    headers.push([rawHeaders[index]!, rawHeaders[index + 1]!]);
+  }
+  return new Request("http://studio.local/", { headers });
 }
 
 describe("Studio hosting contract", () => {
@@ -55,7 +58,7 @@ describe("Studio hosting contract", () => {
   ])("accepts %s", (url) => {
     expect(parseStudioHosting(url, token)).toBeDefined();
   });
-  it("requires one exact bearer credential and one exact browser origin", () => {
+  it("requires one exact bearer credential", () => {
     const hosting = parseStudioHosting("https://example.test/admin", token)!;
     expect(hosting.authenticates(request(["Authorization", "Bearer " + token]))).toBe(true);
     for (const headers of [
@@ -67,14 +70,11 @@ describe("Studio hosting contract", () => {
     ]) {
       expect(hosting.authenticates(request(headers))).toBe(false);
     }
-    expect(hasStudioOrigin(request(["Origin", hosting.origin]), hosting)).toBe(true);
-    for (const headers of [
-      [],
-      ["Origin", "null"],
-      ["Origin", hosting.origin + "/"],
-      ["Origin", hosting.origin, "origin", hosting.origin],
-    ])
-      expect(hasStudioOrigin(request(headers), hosting)).toBe(false);
+  });
+  it("compares secrets in constant time", () => {
+    expect(constantTimeEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2]))).toBe(true);
+    expect(constantTimeEqual(new Uint8Array([1, 2]), new Uint8Array([1, 3]))).toBe(false);
+    expect(constantTimeEqual(new Uint8Array([1]), new Uint8Array([1, 2]))).toBe(false);
   });
   it("strips exactly one mount while preserving opaque IDs and queries", () => {
     expect(

@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import {
-  PIPELINE_RUN_STUDIO_HTML,
-  PIPELINE_RUN_STUDIO_SCRIPT,
-  PIPELINE_RUN_STUDIO_STYLE,
-} from "./run-store-ui-page.js";
+import { createStudioPage, PIPELINE_RUN_STUDIO_STYLE } from "./run-store-ui-page.js";
+import { readStudioClientScript } from "./run-store-ui-page-node.js";
 import { startPipelineRunStudio } from "./run-store-ui.js";
 
+const PIPELINE_RUN_STUDIO_SCRIPT = readStudioClientScript();
+
 describe("pipeline run studio page composition", () => {
-  it("embeds one compiled Studio script as a native module", () => {
+  it("embeds one compiled Studio script as a native module", async () => {
+    const PIPELINE_RUN_STUDIO_HTML = (await createStudioPage(PIPELINE_RUN_STUDIO_SCRIPT)).html("");
     expect(PIPELINE_RUN_STUDIO_HTML.match(/<script type="module">/g)).toEqual([
       '<script type="module">',
     ]);
@@ -21,7 +21,8 @@ describe("pipeline run studio page composition", () => {
     expect(PIPELINE_RUN_STUDIO_HTML).toContain(`<style>${PIPELINE_RUN_STUDIO_STYLE}</style>`);
   });
 
-  it("keeps the studio shell tokens the existing tests rely on", () => {
+  it("keeps the studio shell tokens the existing tests rely on", async () => {
+    const PIPELINE_RUN_STUDIO_HTML = (await createStudioPage(PIPELINE_RUN_STUDIO_SCRIPT)).html("");
     expect(PIPELINE_RUN_STUDIO_HTML).toContain("<title>Tubeless — Studio</title>");
     expect(PIPELINE_RUN_STUDIO_HTML).toContain('id="studio-root"');
     expect(PIPELINE_RUN_STUDIO_SCRIPT).toContain("data-run-id");

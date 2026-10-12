@@ -1,9 +1,9 @@
+import { studioDescriptor } from "../hosting/hosting-commands.js";
 import { parseStudioHosting } from "../studio/run-store-ui-hosting.js";
 import * as path from "node:path";
 import type { SqlitePipelineRunStore } from "../run-store/run-store-sqlite.js";
 import { loadPipelineProjectFile, createModuleRegistration } from "./workbench-project-loader.js";
 import type { PipelineRunEventReader } from "../run-store/run-store.js";
-import type { PipelineRunStudioCommand } from "../studio/run-store-ui.js";
 import {
   WorkbenchStudioLauncher,
   type WorkbenchStudioRegistration,
@@ -127,19 +127,10 @@ export async function runUi(argv: readonly string[], io: WorkbenchCliIo): Promis
         for (const source of sources) {
           const loaded = await source.loadCommand(io);
           if ("exitCode" in loaded) return loaded.exitCode;
-          const descriptor: PipelineRunStudioCommand = {
-            canPlan: true,
-            id: loaded.command.id,
-            name: loaded.command.descriptor.name,
-            parameters: loaded.command.descriptor.parameters,
-          };
-          if (loaded.command.descriptor.description !== undefined) {
-            descriptor.description = loaded.command.descriptor.description;
-          }
           registrations.push({
             command: loaded.command,
             commandIo: loaded.commandIo,
-            descriptor,
+            descriptor: studioDescriptor(loaded.command),
           });
         }
         const registrationIds = new Set<string>();

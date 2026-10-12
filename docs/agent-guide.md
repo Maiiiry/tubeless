@@ -41,6 +41,7 @@ read when a pipeline needs them.
 - [Child pipelines and iteration](#child-pipelines-and-iteration)
 - [Remote work and worker threads](#remote-work-and-worker-threads)
 - [Run inside a host engine](#run-inside-a-host-engine)
+- [Deploy to Cloudflare](#deploy-to-cloudflare)
 - [Projects and typed wrappers](#projects-and-typed-wrappers)
 - [Commands and the workbench CLI](#commands-and-the-workbench-cli)
 - [Declarative documents](#declarative-documents)
@@ -229,6 +230,29 @@ read when a pipeline needs them.
   correlate by execution and state, and let thrown failures reach Step Functions.
   Clear deadline timers after each invocation. Host retries repeat the whole
   pipeline; stopping a workflow does not cancel an already-running Lambda.
+
+### Deploy to Cloudflare
+
+- To host Studio and a project on Cloudflare, run `tubeless init cloudflare` and follow
+  [the deploy guide](./deploy-cloudflare.md); do not hand-write the Worker or its
+  configuration. The scaffold never overwrites files and loads the project first.
+  Keep the fixed binding names `TUBELESS_STUDIO`, `TUBELESS_RUN`, `TUBELESS_BUCKET`,
+  `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`.
+- Keep handlers Workers-compatible: no durable filesystem writes, no `v8` serialization.
+  Read bindings through `import { env } from "cloudflare:workers"`.
+- Give every cached step an explicit store and codec from `tubeless/cloudflare/cache`,
+  never from `tubeless/cloudflare`, which loads only in workerd while step definitions
+  also load in Node. Follow the guide's pattern: a small module passes a bucket getter
+  to `createR2CacheStore`, exports `bindCacheBucket` and `r2Cache`, and
+  `cloudflare/worker.ts` calls `bindCacheBucket(env.TUBELESS_BUCKET)`. Steps use
+  `cache: { version, ...r2Cache }`. Those steps fail in local Node runs unless another
+  bucket or store is supplied. The default file store and V8 codec fail on Workers, and
+  `jsonCacheCodec` accepts only plain JSON data.
+- Respect the run limit: one run executes in one Durable Object alarm and is aborted at
+  14 minutes (`limits.maxRunDurationMs` cannot raise it). Keep single steps short, put
+  long ones behind `fromRemote`, and use a host engine for multi-hour workflows.
+- Never put secrets in `cloudflare.config.ts` text bindings. Every user Cloudflare Access
+  admits sees all history and every command, so deploy a catalog meant for that audience.
 
 ### Projects and typed wrappers
 

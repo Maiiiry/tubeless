@@ -34,6 +34,7 @@ export const DOC_NAV = [
   { slug: "inngest", label: "Tubeless on Inngest", blurb: "Run pipelines inside durable steps with retries, memoized results, and correlated logs." },
   { slug: "dagster", label: "Tubeless on Dagster", blurb: "Materialize assets through Dagster Pipes with progress, data versions, and traces." },
   { slug: "step-functions", label: "Tubeless on Step Functions", blurb: "Run pipelines in AWS Lambda Tasks with retries, deadlines, and correlated logs." },
+  { slug: "deploy-cloudflare", label: "Deploy to Cloudflare", blurb: "Host Studio and pipelines in your account behind Access, and plan for the 14-minute run limit." },
   { slug: "agent-guide", label: "Agent guide", blurb: "Rules for generating pipeline code." },
   { slug: "agent-skills", label: "Agent skills", blurb: "Install the skill pack and convert existing code into pipelines." },
   { slug: "api-reference", label: "API reference", blurb: "Public exports and TypeScript signatures, generated from the package." },

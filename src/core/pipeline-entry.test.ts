@@ -15,6 +15,13 @@ function dependencies(file: string): string[] {
     .map((specifier) => resolve(dirname(file), specifier));
 }
 
+function externalSpecifiers(file: string): string[] {
+  const source = readFileSync(file, "utf8");
+  return [...source.matchAll(/(?:\bfrom\s+|\bimport\s*(?:\(\s*)?)["']([^"']+)["']/g)]
+    .map((match) => match[1]!)
+    .filter((specifier) => !specifier.startsWith("."));
+}
+
 const allowedDependencies: Record<string, readonly string[]> = {
   agent: ["core", "tracing", "utilities"],
   core: ["tracing", "utilities"],
@@ -28,10 +35,13 @@ const allowedDependencies: Record<string, readonly string[]> = {
   cli: ["core", "node", "reporter", "utilities"],
   testing: ["core", "utilities"],
   project: ["core", "utilities"],
+  hosting: ["cli", "core", "project", "render", "studio", "tracing", "utilities"],
+  cloudflare: ["cli", "core", "hosting", "project", "run-store", "studio", "tracing", "utilities"],
   workbench: [
     "agent",
     "cli",
     "core",
+    "hosting",
     "project",
     "render",
     "reporter",
@@ -96,6 +106,25 @@ describe("module runtime boundaries", () => {
       pending.push(...dependencies(file));
     }
     expect(visited.size).toBe(allowed.size);
+  });
+
+  it("keeps the Studio request pipeline, page and API free of Node built-ins", () => {
+    const pending = [
+      resolve(dist, "studio/run-store-ui-handler.js"),
+      resolve(dist, "studio/run-store-ui-page.js"),
+      resolve(dist, "studio/run-store-ui-api.js"),
+    ];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (visited.has(file)) continue;
+      visited.add(file);
+      expect(externalSpecifiers(file), `${relative(dist, file)} imports a platform module`).toEqual(
+        []
+      );
+      pending.push(...dependencies(file));
+    }
+    expect(visited.size).toBeGreaterThan(3);
   });
 
   it("keeps history projection and Studio API routes free of execution, adapters and page assets", () => {
@@ -221,7 +250,7 @@ describe("module runtime boundaries", () => {
       visited.add(file);
       const name = relative(dist, file).split(sep).join("/");
       expect(
-        ["cli", "core", "node", "reporter", "render", "tracing", "utilities"].includes(
+        ["cli", "core", "hosting", "node", "reporter", "render", "tracing", "utilities"].includes(
           moduleName(file)
         ) || workbenchInternals.has(name),
         `Studio launch execution reaches an entrypoint or concrete adapter: ${name}`
@@ -229,6 +258,62 @@ describe("module runtime boundaries", () => {
       pending.push(...dependencies(file));
     }
     expect(visited.size).toBeGreaterThan(1);
+  });
+
+  it("keeps the hosting kit free of workbench, storage adapters and the HTTP listener", () => {
+    const pending = [resolve(dist, "hosting/hosting-commands.js")];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (visited.has(file)) continue;
+      visited.add(file);
+      const name = relative(dist, file).split(sep).join("/");
+      expect(moduleName(file), `Hosting reaches ${name}`).not.toBe("workbench");
+      expect(name).not.toMatch(
+        /^run-store\/run-store-(sqlite|ndjson)\.js$|^studio\/run-store-ui(-node|-page-node)?\.js$/
+      );
+      for (const specifier of externalSpecifiers(file)) {
+        if (moduleName(file) === "hosting") {
+          expect(specifier, `${name} imports ${specifier}`).not.toMatch(/^node:/);
+        }
+      }
+      pending.push(...dependencies(file));
+    }
+    expect(visited.size).toBeGreaterThan(1);
+  });
+
+  it("confines cloudflare:workers to the Cloudflare entrypoint", () => {
+    for (const name of readdirSync(dist, { recursive: true, encoding: "utf8" })) {
+      if (!name.endsWith(".js")) continue;
+      const specifiers = externalSpecifiers(resolve(dist, name));
+      if (specifiers.some((specifier) => specifier.startsWith("cloudflare:"))) {
+        expect(name.split(sep).join("/"), `${name} imports a Cloudflare platform module`).toBe(
+          "cloudflare/cloudflare.js"
+        );
+      }
+    }
+    expect(readFileSync(resolve(dist, "cloudflare/cloudflare.d.ts"), "utf8")).not.toMatch(
+      /cloudflare:|@cloudflare\//
+    );
+  });
+
+  it("keeps the Cloudflare cache entrypoint loadable outside workerd", () => {
+    const pending = [resolve(dist, "cloudflare/cloudflare-cache.js")];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (visited.has(file)) continue;
+      visited.add(file);
+      for (const specifier of externalSpecifiers(file)) {
+        expect(specifier, `${relative(dist, file)} imports ${specifier}`).not.toMatch(
+          /^cloudflare:/
+        );
+      }
+      pending.push(...dependencies(file));
+    }
+    expect(readFileSync(resolve(dist, "cloudflare/cloudflare-cache.d.ts"), "utf8")).not.toMatch(
+      /cloudflare:|@cloudflare\//
+    );
   });
 
   it("keeps CLI authoring independent of workbench, storage and Studio", () => {

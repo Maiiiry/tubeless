@@ -70,6 +70,7 @@ Advanced:
 - Tubeless on Inngest: ./inngest.md
 - Tubeless on Dagster: ./dagster.md
 - Tubeless on AWS Step Functions: ./step-functions.md
+- Deploy to Cloudflare (Worker, Durable Objects, R2, Access; 14-minute run limit): ./deploy-cloudflare.md
 - Public exports: ./api-reference.md
 - Machine-readable surface: ./api-report.json
 Executable examples:
@@ -113,6 +114,8 @@ Executable examples:
 - ../examples/step-functions/handler.ts
 - ../examples/step-functions/state-machine.asl.json
 - ../examples/step-functions/template.json
+- ../examples/cloudflare/cloudflare.config.ts
+- ../examples/cloudflare/cloudflare/worker.ts
 - ../examples/fan-out-progress.ts
 - ../examples/resumable-enrichment.ts
 - ../examples/cli-job.ts

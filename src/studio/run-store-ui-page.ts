@@ -1,12 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-
-const distributedClientUrl = new URL("./run-store-ui-client-browser.js", import.meta.url);
-const workspaceClientUrl = new URL(
-  "../../dist/studio/run-store-ui-client-browser.js",
-  import.meta.url
-);
-const clientUrl = existsSync(distributedClientUrl) ? distributedClientUrl : workspaceClientUrl;
-
 export const PIPELINE_RUN_STUDIO_STYLE = String.raw`
     :root {
       --ink: #171816;
@@ -437,14 +428,21 @@ export const PIPELINE_RUN_STUDIO_STYLE = String.raw`
     }
   `;
 
-/**
- * Compiled studio client inlined into the served page. Refresh with
- * `bun run build` after editing the Studio client components.
- */
-export const PIPELINE_RUN_STUDIO_SCRIPT = readFileSync(clientUrl, "utf8");
+export interface StudioPage {
+  readonly csp: string;
+  html(mount: string): string;
+}
 
-export const PIPELINE_RUN_STUDIO_HTML =
-  String.raw`<!doctype html>
+async function sha256Base64(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  let binary = "";
+  for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function studioDocument(script: string): string {
+  return (
+    String.raw`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -452,26 +450,37 @@ export const PIPELINE_RUN_STUDIO_HTML =
   <meta name="color-scheme" content="light" />
   <title>Tubeless — Studio</title>
   <style>` +
-  PIPELINE_RUN_STUDIO_STYLE +
-  String.raw`</style>
+    PIPELINE_RUN_STUDIO_STYLE +
+    String.raw`</style>
 </head>
 <body>
   <div id="studio-root"></div>
   <script type="module">` +
-  PIPELINE_RUN_STUDIO_SCRIPT +
-  String.raw`</script>
+    script +
+    String.raw`</script>
 </body>
-</html>`;
-
-/** Only a validated, nonsecret mount is included; script and style bytes stay identical. */
-export function studioHtml(mount: string): string {
-  const escaped = mount
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-  return PIPELINE_RUN_STUDIO_HTML.replace(
-    '<meta charset="utf-8" />',
-    '<meta charset="utf-8" /><meta name="tubeless-studio-mount" content="' + escaped + '" />'
+</html>`
   );
+}
+
+/** Build the page from the compiled client. Only a validated, nonsecret mount enters the HTML. */
+export async function createStudioPage(script: string): Promise<StudioPage> {
+  const styleHash = await sha256Base64(PIPELINE_RUN_STUDIO_STYLE);
+  const scriptHash = await sha256Base64(script);
+  const csp = `default-src 'none'; style-src 'sha256-${styleHash}'; script-src 'sha256-${scriptHash}'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+  const document = studioDocument(script);
+  return {
+    csp,
+    html(mount) {
+      const escaped = mount
+        .replaceAll("&", "&amp;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+      return document.replace(
+        '<meta charset="utf-8" />',
+        '<meta charset="utf-8" /><meta name="tubeless-studio-mount" content="' + escaped + '" />'
+      );
+    },
+  };
 }

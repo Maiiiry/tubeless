@@ -12,10 +12,12 @@
     "examples/temporal/worker.ts",
     "examples/temporal/workflows.ts",
     "examples/dagster/worker.ts",
-    "examples/step-functions/handler.ts"
+    "examples/step-functions/handler.ts",
+    "examples/cloudflare/cloudflare.config.ts"
   ],
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{js,mjs,ts}", "!scripts/fixtures/**"],
   "ignoreBinaries": ["mkfifo"],
+  "ignoreDependencies": ["cloudflare"],
   "ignoreExportsUsedInFile": {
     "interface": true,
     "type": true

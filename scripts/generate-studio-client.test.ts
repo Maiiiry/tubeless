@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compiledClientSource } from "./generate-studio-client.mjs";
+import { cloudflareClientModule, compiledClientSource } from "./generate-studio-client.mjs";
 
 describe("compiledClientSource", () => {
   it("preserves ESM exports, removes the source map, and keeps entrypoint side effects", async () => {
@@ -35,4 +35,13 @@ describe("compiledClientSource", () => {
       );
     }
   );
+});
+
+describe("cloudflareClientModule", () => {
+  it("embeds the client source as a lossless string literal", () => {
+    const module = cloudflareClientModule('a"b');
+    const literal = /^export const PIPELINE_RUN_STUDIO_CLIENT = (.*);\n$/s.exec(module)?.[1];
+    expect(literal).toBeDefined();
+    expect(JSON.parse(literal!)).toBe('a"b');
+  });
 });

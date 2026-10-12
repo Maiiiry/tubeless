@@ -44,6 +44,7 @@ For agent or editor validation, use the [pipeline document JSON Schema](./pipeli
 | [Tubeless on Inngest](./inngest.md)                           | Hosting pipelines in durable steps with retries, memoized results, and correlated logs |
 | [Tubeless on Dagster](./dagster.md)                           | Materializing assets with Pipes, progress logs, data versions, and traces              |
 | [Tubeless on AWS Step Functions](./step-functions.md)         | Hosting pipelines in Lambda Tasks with retries, deadlines, and correlated logs         |
+| [Deploy to Cloudflare](./deploy-cloudflare.md)                | Hosting Studio and pipelines in your account behind Access, with run limits            |
 | [Generated API inventory](./api-reference.md)                 | Entrypoints, exported symbols, and surface hashes                                      |
 | [Machine-readable API report](./api-report.json)              | Automated public-surface review                                                        |
 | [LLM index](./llms.txt)                                       | Documentation links for coding agents                                                  |

@@ -24,6 +24,7 @@ Commands:
   tubeless agent     Prompt a workspace agent with a live execution DAG
   tubeless history   Show recorded runs from the local SQLite store
   tubeless ui        Open the optional local run studio
+  tubeless init      Scaffold a deployment (cloudflare)
   tubeless auth      Sign in to Tubeless Cloud
   tubeless cloud     List and run deployed Cloud pipelines
 
@@ -46,6 +47,10 @@ export async function runWorkbenchCli(
   if (command === "auth") {
     const { runAuth } = await import("./workbench-auth.js");
     return runAuth(commandArgs, io);
+  }
+  if (command === "init") {
+    const { runInit } = await import("./workbench-init.js");
+    return runInit(commandArgs, io);
   }
   if (command === "cloud") {
     const { runCloud } = await import("./workbench-cloud.js");

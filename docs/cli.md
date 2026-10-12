@@ -347,6 +347,7 @@ or Studio. Optional Node helpers live in `tubeless/node`.
 | `tubeless run`      | A pipeline ID or command export  | Infers or validates command arguments and runs the pipeline         |
 | `tubeless history`  | An optional run id               | Lists or shows recorded runs from SQLite or a finished NDJSON trace |
 | `tubeless ui`       | An optional project file         | Serves the local run studio; see [studio](./studio.md)              |
+| `tubeless init`     | A deploy target                  | Scaffolds deployment files; see [init](#init)                       |
 
 Use `tubeless validate [--json] pipelines.yaml` for a fast document-only check.
 It supports `.yaml`, `.yml`, and `.json`; it does not resolve handlers, check the
@@ -662,6 +663,23 @@ the upstream Host to the public authority, and replace browser credentials with
 the gateway credential after checking session/admin permission for every request.
 See the complete [hosting contract](./studio.md#host-studio-behind-an-application-gateway)
 for Origin, login expiry, readiness, persistence, and shutdown behavior.
+
+## Init
+
+```sh
+tubeless init <target> [-p, --project <path>]
+```
+
+Scaffold deployment files for a project. The one target today is `cloudflare`,
+which writes `cloudflare/worker.ts` and `cloudflare.config.ts`; the
+[Cloudflare guide](./deploy-cloudflare.md) covers deploying them.
+`--project` selects the project file (default `./tubeless.project.ts`).
+
+`init` loads the project and derives every command before it writes anything, so
+a broken project fails with the usual load error. It never overwrites: if any
+target file already exists, it names the conflicts and writes nothing. After
+creating the files it prints the next steps for the target. An unknown target or a
+missing target argument is a usage error.
 
 ## Exit codes
 

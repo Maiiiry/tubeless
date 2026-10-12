@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-import type { IncomingMessage } from "node:http";
 import { normalizeHttpAuthority } from "./run-store-ui-http.js";
 
 /** Operator-owned configuration. Never serialize this object into the page. */
@@ -9,17 +7,7 @@ export interface StudioHosting {
   readonly authority: string;
   readonly mount: string;
   readonly trustsAuthority: (authority: string | undefined) => boolean;
-  readonly authenticates: (request: IncomingMessage) => boolean;
-}
-
-function singleHeader(request: IncomingMessage, name: string): string | undefined {
-  const values: string[] = [];
-  for (let index = 0; index < request.rawHeaders.length; index += 2) {
-    if (request.rawHeaders[index]?.toLowerCase() === name) {
-      values.push(request.rawHeaders[index + 1]!);
-    }
-  }
-  return values.length === 1 ? values[0] : undefined;
+  readonly authenticates: (request: Request) => boolean;
 }
 
 /** Validate before loading user modules or opening resources. Errors contain no supplied values. */
@@ -74,7 +62,7 @@ export function parseStudioHosting(
   const authority = normalizeHttpAuthority(url.host, url.protocol);
   if (!authority) throw invalidUrl();
   const mount = segments.length ? "/" + segments.join("/") : "";
-  const expected = Buffer.from(token, "hex");
+  const expected = hexBytes(token);
   return {
     publicUrl: url.origin + mount + "/",
     origin: url.origin,
@@ -82,15 +70,29 @@ export function parseStudioHosting(
     mount,
     trustsAuthority: (value) => normalizeHttpAuthority(value, url.protocol) === authority,
     authenticates(request) {
-      const header = singleHeader(request, "authorization");
+      // Fetch joins duplicate headers with ", ", which fails this pattern, so duplicates stay rejected.
+      const header = request.headers.get("authorization");
       if (!header || !/^Bearer [0-9a-fA-F]{64}$/.test(header)) return false;
-      return timingSafeEqual(expected, Buffer.from(header.slice(7), "hex"));
+      return constantTimeEqual(expected, hexBytes(header.slice(7)));
     },
   };
 }
 
-export function hasStudioOrigin(request: IncomingMessage, hosting: StudioHosting): boolean {
-  return singleHeader(request, "origin") === hosting.origin;
+/** Precondition: already-validated even-length hex (callers match the 64-hex pattern first). */
+function hexBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+/** Compare equal-length secrets without data-dependent early exit. */
+export function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index]! ^ right[index]!;
+  return difference === 0;
 }
 
 /** Preserve opaque encoded route IDs; only reject ambiguous path structure. */

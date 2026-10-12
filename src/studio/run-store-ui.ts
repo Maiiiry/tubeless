@@ -1,31 +1,21 @@
-import { createHash } from "node:crypto";
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import { isIP } from "node:net";
 import type { PipelineRunEventReader, PipelineRunEventStore } from "../run-store/run-store.js";
 import {
+  errorResponse,
   formatHttpUrlHost,
-  isLiteralOrLocalhostHttpHost,
   isUnspecifiedHttpHost,
   normalizeHttpAuthority,
   parseHttpAuthority,
-  writeError,
-  writeJson,
-  writeUnexpectedStudioError,
+  unexpectedStudioErrorResponse,
 } from "./run-store-ui-http.js";
-import {
-  studioHtml,
-  PIPELINE_RUN_STUDIO_SCRIPT,
-  PIPELINE_RUN_STUDIO_STYLE,
-} from "./run-store-ui-page.js";
+import { createStudioPage } from "./run-store-ui-page.js";
+import { readStudioClientScript } from "./run-store-ui-page-node.js";
+import { toFetchHeaders, toFetchRequest, writeFetchResponse } from "./run-store-ui-node.js";
+import { createStudioRequestHandler, untrustedHostResponse } from "./run-store-ui-handler.js";
 import { createStudioApiHandler, type PipelineRunStudioApiOptions } from "./run-store-ui-api.js";
-import { hasStudioOrigin, studioRoute, type StudioHosting } from "./run-store-ui-hosting.js";
-export type {
-  PipelineRunStudioCommand,
-  PipelineRunStudioLaunchResult,
-} from "./run-store-ui-protocol.js";
-
-const studioStyleCspHash = `'sha256-${createHash("sha256").update(PIPELINE_RUN_STUDIO_STYLE).digest("base64")}'`;
-const studioScriptCspHash = `'sha256-${createHash("sha256").update(PIPELINE_RUN_STUDIO_SCRIPT).digest("base64")}'`;
-const studioPageCsp = `default-src 'none'; style-src ${studioStyleCspHash}; script-src ${studioScriptCspHash}; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+import type { StudioHosting } from "./run-store-ui-hosting.js";
+export type { PipelineRunStudioLaunchResult } from "./run-store-ui-protocol.js";
 
 export interface PipelineRunStudioOptions extends PipelineRunStudioApiOptions {
   store: PipelineRunEventReader | PipelineRunEventStore;
@@ -49,6 +39,13 @@ function isAddressInfo(
   return typeof address !== "string" && address !== null;
 }
 
+/** Hostname that a wildcard listener may trust: localhost or a literal IP. */
+export function isLiteralOrLocalhostHttpHost(hostname: string): boolean {
+  const value = hostname.toLowerCase();
+  const unbracketed = value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
+  return unbracketed === "localhost" || isIP(unbracketed) !== 0;
+}
+
 function closeServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
@@ -62,18 +59,18 @@ export async function startPipelineRunStudio(
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? 4317;
   const hosting = options.hosting;
-  const handleApi = createStudioApiHandler({
+  const api = createStudioApiHandler({
     ...options,
     history: hosting ? undefined : options.history,
   });
+  const page = await createStudioPage(readStudioClientScript());
   let ready = true;
   let expectedAuthority: string | undefined;
   const wildcardBind = isUnspecifiedHttpHost(host);
-  const isTrustedAuthority = (request: import("node:http").IncomingMessage): boolean => {
-    const requestAuthority = normalizeHttpAuthority(request.headers.host);
+  const trustsAuthority = (authority: string | undefined): boolean => {
+    const requestAuthority = normalizeHttpAuthority(authority);
     if (!requestAuthority || !expectedAuthority) return false;
-    if (requestAuthority === expectedAuthority || hosting?.trustsAuthority(request.headers.host))
-      return true;
+    if (requestAuthority === expectedAuthority || hosting?.trustsAuthority(authority)) return true;
     if (!wildcardBind) return false;
     const requestParts = parseHttpAuthority(requestAuthority);
     const expectedParts = parseHttpAuthority(expectedAuthority);
@@ -84,79 +81,62 @@ export async function startPipelineRunStudio(
       isLiteralOrLocalhostHttpHost(requestParts.hostname)
     );
   };
+  const authenticate = hosting
+    ? (request: Request): Response | undefined =>
+        hosting.authenticates(request)
+          ? undefined
+          : errorResponse(
+              401,
+              "gateway_authentication_required",
+              "Gateway authentication failed.",
+              "Check the application gateway configuration."
+            )
+    : undefined;
+  const handle = createStudioRequestHandler({
+    api,
+    page,
+    mount: hosting?.mount ?? "",
+    authenticate,
+    trustsAuthority,
+    allowedOrigin: hosting ? () => hosting.origin : undefined,
+    isReady: () => ready,
+  });
+  /** Fetch cannot represent methods such as TRACE; apply the gateway order without a body. */
+  const rejectUnconvertible = async (request: IncomingMessage): Promise<Response> => {
+    const denial = await authenticate?.(
+      new Request("http://studio.local/", { headers: toFetchHeaders(request) })
+    );
+    if (denial) return denial;
+    if (!trustsAuthority(request.headers.host)) return untrustedHostResponse();
+    return errorResponse(
+      405,
+      "method_not_allowed",
+      "Method not allowed.",
+      "Read the Studio guide at https://tubeless.io/docs/studio."
+    );
+  };
   const server = createServer(async (request, response) => {
+    const method = request.method ?? "GET";
     try {
-      if (hosting && !hosting.authenticates(request)) {
-        writeError(
-          response,
-          401,
-          "gateway_authentication_required",
-          "Gateway authentication failed.",
-          "Check the application gateway configuration."
-        );
-        return;
+      let fetchRequest: Request | undefined;
+      try {
+        fetchRequest = toFetchRequest(request);
+      } catch {
+        fetchRequest = undefined;
       }
-      if (!isTrustedAuthority(request)) {
-        writeError(
-          response,
-          403,
-          "untrusted_host",
-          "The request host is not trusted.",
-          "Use the exact local Studio URL printed by tubeless ui."
-        );
-        return;
-      }
-      if (
-        hosting &&
-        (request.method === "POST" || request.method === "DELETE") &&
-        !hasStudioOrigin(request, hosting)
-      ) {
-        writeError(
-          response,
-          403,
-          "untrusted_origin",
-          "The request origin is not trusted.",
-          "Send mutations from the configured Studio origin."
-        );
-        return;
-      }
-      const route = studioRoute(request.url ?? "/", hosting?.mount ?? "");
-      if (!route) {
-        writeError(
-          response,
-          404,
-          "not_found",
-          "Studio route not found.",
-          "Use the configured Studio URL."
-        );
-        return;
-      }
-      if (route.path === "" && (request.method === "GET" || request.method === "HEAD")) {
-        response.writeHead(308, {
-          "cache-control": "no-store",
-          location: hosting!.mount + "/" + route.search,
-        });
-        response.end();
-        return;
-      }
-      const url = new URL(route.path + route.search, "http://studio.local");
-      if (request.method === "GET" && url.pathname === "/api/health") {
-        writeJson(response, { ready }, ready ? 200 : 503);
-        return;
-      }
-      if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/") {
-        response.writeHead(200, {
-          "cache-control": "no-store",
-          "content-security-policy": studioPageCsp,
-          "content-type": "text/html; charset=utf-8",
-          "x-content-type-options": "nosniff",
-        });
-        response.end(request.method === "HEAD" ? undefined : studioHtml(hosting?.mount ?? ""));
-        return;
-      }
-      await handleApi(request, response, url);
+      const result = fetchRequest
+        ? await handle(fetchRequest, {
+            rawTarget: request.url ?? "/",
+            authority: request.headers.host,
+          })
+        : await rejectUnconvertible(request);
+      await writeFetchResponse(response, result, method);
     } catch (error) {
-      writeUnexpectedStudioError(response, error);
+      if (response.headersSent) {
+        response.destroy();
+        return;
+      }
+      await writeFetchResponse(response, unexpectedStudioErrorResponse(error), method);
     }
   });
 

@@ -2,9 +2,12 @@ import { createHash } from "node:crypto";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodePipelineTraceEvent } from "../tracing/tracing-codec.js";
-import { PIPELINE_RUN_STUDIO_SCRIPT, PIPELINE_RUN_STUDIO_STYLE } from "./run-store-ui-page.js";
+import { PIPELINE_RUN_STUDIO_STYLE } from "./run-store-ui-page.js";
+import { readStudioClientScript } from "./run-store-ui-page-node.js";
 import { parseStudioHosting } from "./run-store-ui-hosting.js";
 import { startPipelineRunStudio } from "./run-store-ui.js";
+
+const PIPELINE_RUN_STUDIO_SCRIPT = readStudioClientScript();
 
 const token = "a1".repeat(32);
 const cleanups: (() => Promise<void>)[] = [];
@@ -23,7 +26,14 @@ async function listen(server: Server) {
   if (!address || typeof address === "string") throw new Error("Expected TCP server");
   return address.port;
 }
-async function raw(port: number, path: string, headers: string[] = [], method = "GET", body = "") {
+async function raw(
+  port: number,
+  path: string,
+  headers: string[] = [],
+  method = "GET",
+  body = "",
+  host = "example.test"
+) {
   return new Promise<{
     status: number;
     text: string;
@@ -35,13 +45,7 @@ async function raw(port: number, path: string, headers: string[] = [], method = 
         port,
         path,
         method,
-        headers: [
-          "Host",
-          "example.test",
-          "Content-Length",
-          String(Buffer.byteLength(body)),
-          ...headers,
-        ],
+        headers: ["Host", host, "Content-Length", String(Buffer.byteLength(body)), ...headers],
       },
       (response) => {
         const chunks: Buffer[] = [];
@@ -148,6 +152,29 @@ describe("authenticated Studio listener", () => {
     expect(f.launch).not.toHaveBeenCalled();
     expect(f.plan).not.toHaveBeenCalled();
     expect(f.cancel).not.toHaveBeenCalled();
+  });
+  it("answers methods Fetch cannot represent in gateway order without logging", async () => {
+    const f = await fixture();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const method of ["TRACE"]) {
+        const path = "/admin/pipelines/api/snapshot";
+        expect((await raw(f.studio.port, path, [], method)).status).toBe(401);
+        expect(
+          (await raw(f.studio.port, path, ["Authorization", "Bearer bad"], method)).status
+        ).toBe(401);
+        const untrusted = await raw(f.studio.port, path, auth, method, "", "evil.example");
+        expect(untrusted.status).toBe(403);
+        expect(JSON.parse(untrusted.text)).toMatchObject({ code: "untrusted_host" });
+        const allowed = await raw(f.studio.port, path, auth, method);
+        expect(allowed.status).toBe(405);
+        expect(JSON.parse(allowed.text)).toMatchObject({ code: "method_not_allowed" });
+      }
+      expect(logged).not.toHaveBeenCalled();
+      expect(f.listEvents).not.toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+    }
   });
   it("checks raw mount boundaries before normalization and redirects only safe navigation", async () => {
     const { studio } = await fixture();

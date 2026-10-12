@@ -8,20 +8,22 @@ Package: `tubeless`
 
 ## Public entrypoints
 
-| Entrypoint              | Declaration                        | Surface hash                                                       | Exported symbols |
-| ----------------------- | ---------------------------------- | ------------------------------------------------------------------ | ---------------: |
-| `tubeless/agent/node`   | `./dist/agent/node.d.ts`           | `a80a1618a64e39d83c098386aa7c647cd0e17ca89e7a3879a6e8b31bdc08ffdc` |                3 |
-| `tubeless/agent`        | `./dist/agent/agent.d.ts`          | `8265edece5bbe856dbfdffdcff0c98bb2bd6638d778138408bd32beb8b089999` |               28 |
-| `tubeless`              | `./dist/core/pipeline.d.ts`        | `f8ac37224f3fbc1603236e9d0e9d274c3b470b44b769610b73af460cca4e3efd` |               78 |
-| `tubeless/cli`          | `./dist/cli/cli.d.ts`              | `fa8e7bf17762ea9aa03f18dda28bb8c029da6a85bbe30254cacc9ec5bee1d048` |               31 |
-| `tubeless/batch`        | `./dist/utilities/batch.d.ts`      | `a09125c6849bb91b4bbba2f76c4248452d5288cf0c70671461de5846b1d17037` |                7 |
-| `tubeless/node`         | `./dist/node/node.d.ts`            | `e4d6f11692c2b3e5d84d6f8dabc05bf20968efc62c7d7d24154ec9f8fac67486` |               14 |
-| `tubeless/rate-limit`   | `./dist/utilities/rate-limit.d.ts` | `01029b2a9f1504a66e396804ccc63a5b43dbcb63c002dd47918e315a90ac2a3a` |                1 |
-| `tubeless/retry`        | `./dist/utilities/retry.d.ts`      | `52ede846e87e3601426639a7bdc2de0a440c119470dc55324deb26cb312757fd` |                6 |
-| `tubeless/project`      | `./dist/project/project.d.ts`      | `fa92f6cd9a16fecfc7518034bd85f8d574be226c25b344921e352236c322ac11` |                8 |
-| `tubeless/testing`      | `./dist/testing/testing.d.ts`      | `8132a51acb1dc50c2d9bc242af24e4176ebf0b8ac8515a1d5032d861fb66dc56` |               10 |
-| `tubeless/tracing`      | `./dist/tracing/tracing.d.ts`      | `e378d1e798e86752560d4398a591826ba0b3e0af0417ffd2fd71e3ffb28aeffb` |                3 |
-| `tubeless/agent/openai` | `./dist/agent/openai.d.ts`         | `a069637d0c00736ef67c7ef13f3ca798672171ffb434fae52df7ecd1cc0a784a` |                2 |
+| Entrypoint                  | Declaration                               | Surface hash                                                       | Exported symbols |
+| --------------------------- | ----------------------------------------- | ------------------------------------------------------------------ | ---------------: |
+| `tubeless/agent/node`       | `./dist/agent/node.d.ts`                  | `a80a1618a64e39d83c098386aa7c647cd0e17ca89e7a3879a6e8b31bdc08ffdc` |                3 |
+| `tubeless/agent`            | `./dist/agent/agent.d.ts`                 | `8265edece5bbe856dbfdffdcff0c98bb2bd6638d778138408bd32beb8b089999` |               28 |
+| `tubeless`                  | `./dist/core/pipeline.d.ts`               | `f8ac37224f3fbc1603236e9d0e9d274c3b470b44b769610b73af460cca4e3efd` |               78 |
+| `tubeless/cli`              | `./dist/cli/cli.d.ts`                     | `fa8e7bf17762ea9aa03f18dda28bb8c029da6a85bbe30254cacc9ec5bee1d048` |               31 |
+| `tubeless/batch`            | `./dist/utilities/batch.d.ts`             | `a09125c6849bb91b4bbba2f76c4248452d5288cf0c70671461de5846b1d17037` |                7 |
+| `tubeless/node`             | `./dist/node/node.d.ts`                   | `e4d6f11692c2b3e5d84d6f8dabc05bf20968efc62c7d7d24154ec9f8fac67486` |               14 |
+| `tubeless/rate-limit`       | `./dist/utilities/rate-limit.d.ts`        | `01029b2a9f1504a66e396804ccc63a5b43dbcb63c002dd47918e315a90ac2a3a` |                1 |
+| `tubeless/retry`            | `./dist/utilities/retry.d.ts`             | `52ede846e87e3601426639a7bdc2de0a440c119470dc55324deb26cb312757fd` |                6 |
+| `tubeless/project`          | `./dist/project/project.d.ts`             | `fa92f6cd9a16fecfc7518034bd85f8d574be226c25b344921e352236c322ac11` |                8 |
+| `tubeless/testing`          | `./dist/testing/testing.d.ts`             | `8132a51acb1dc50c2d9bc242af24e4176ebf0b8ac8515a1d5032d861fb66dc56` |               10 |
+| `tubeless/tracing`          | `./dist/tracing/tracing.d.ts`             | `e378d1e798e86752560d4398a591826ba0b3e0af0417ffd2fd71e3ffb28aeffb` |                3 |
+| `tubeless/agent/openai`     | `./dist/agent/openai.d.ts`                | `a069637d0c00736ef67c7ef13f3ca798672171ffb434fae52df7ecd1cc0a784a` |                2 |
+| `tubeless/cloudflare`       | `./dist/cloudflare/cloudflare.d.ts`       | `4ad15d4c8feeedf6decc5490e12a7c5b495bc4abcc7fbbeebf7a3fd5a6c01867` |                9 |
+| `tubeless/cloudflare/cache` | `./dist/cloudflare/cloudflare-cache.d.ts` | `1ef4f5fbc3032f0fa2f61f3985d20cb41491c3d0477ba2757e5af97bb83364c9` |                4 |
 
 ## Symbols
 
@@ -275,3 +277,26 @@ Package: `tubeless`
 | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
 | [`openaiModel`](https://github.com/chetmancini/tubeless/blob/main/src/agent/openai.ts#L30)       | Create a dependency-free OpenAI Responses model with native history and automatic compaction. |
 | [`OpenAIModelOptions`](https://github.com/chetmancini/tubeless/blob/main/src/agent/openai.ts#L8) | Responses transport settings; credentials are resolved only when a decision executes.         |
+
+### `tubeless/cloudflare`
+
+| Symbol                                                                                                               | Description                                                                               |
+| -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [`CloudflareApp`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare.ts#L41)                | Worker handler and Durable Object classes that a Worker entry exports.                    |
+| [`CloudflareAppOptions`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare.ts#L25)         | Options for createCloudflareApp.                                                          |
+| [`CloudflareDurableObjectClass`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare.ts#L38) | Durable Object class to export from the Worker entry under its binding's export name.     |
+| [`CloudflareWorker`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare.ts#L33)             | Worker module handler to use as the Worker entry's default export.                        |
+| [`createCloudflareApp`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare.ts#L96)          | Compose a single-tenant Tubeless deployment for a Worker with two SQLite Durable Objects. |
+| [`createR2CacheStore`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare-cache.ts#L24)     | Step cache entries in R2.                                                                 |
+| [`jsonCacheCodec`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare-cache.ts#L132)        | Lossless JSON codec for Workers, where the default V8 codec is unavailable.               |
+| [`R2BucketLike`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare-cache.ts#L11)           | Structural subset of an R2 bucket binding that the cache store uses.                      |
+| [`R2ObjectLike`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare-cache.ts#L4)            | Structural subset of an R2 object body that the cache store reads.                        |
+
+### `tubeless/cloudflare/cache`
+
+| Symbol                                                                                                           | Description                                                                 |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [`createR2CacheStore`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare-cache.ts#L24) | Step cache entries in R2.                                                   |
+| [`jsonCacheCodec`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare-cache.ts#L132)    | Lossless JSON codec for Workers, where the default V8 codec is unavailable. |
+| [`R2BucketLike`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare-cache.ts#L11)       | Structural subset of an R2 bucket binding that the cache store uses.        |
+| [`R2ObjectLike`](https://github.com/chetmancini/tubeless/blob/main/src/cloudflare/cloudflare-cache.ts#L4)        | Structural subset of an R2 object body that the cache store reads.          |

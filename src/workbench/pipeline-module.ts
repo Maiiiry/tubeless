@@ -2,7 +2,6 @@ import { pathToFileURL } from "node:url";
 import type { CliCommandDescriptor, CliContext } from "../cli/cli.js";
 import { pipelineForCommand } from "../utilities/pipeline-command-marker.js";
 import type {
-  Pipeline,
   PipelineMermaidOptions,
   PipelinePlan,
   PipelineRunControls,
@@ -16,9 +15,6 @@ export interface WorkbenchPipeline {
   plan(controls?: PipelineRunControls): PipelinePlan;
   toMermaid(options?: PipelineMermaidOptions): string;
 }
-
-/** Full pipeline surface required to derive a runnable CLI command. */
-export type WorkbenchExecutablePipeline = Pipeline<object, unknown>;
 
 /** Runtime surface exposed only by commands created with definePipelineCommand. */
 export type WorkbenchPipelineCommandParseResult =

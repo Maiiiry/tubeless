@@ -84,17 +84,17 @@
     "@temporalio/workflow": "1.24.0",
     "@types/aws-lambda": "8.10.164",
     "@types/node": "22.20.5",
-    "@vitest/coverage-v8": "5.0.3",
-    "cf": "1.0.0-beta.13",
-    "inngest": "4.22.0",
-    "knip": "6.40.0",
+    "@vitest/coverage-v8": "5.0.4",
+    "cf": "1.0.0-beta.17",
+    "inngest": "4.24.0",
+    "knip": "6.41.0",
     "miniflare": "5.20261006.0-alpha",
-    "oxfmt": "0.72.0",
-    "oxlint": "1.87.0",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
     "preact": "11.0.1",
-    "preact-render-to-string": "6.8.0",
+    "preact-render-to-string": "6.8.1",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.4"
   },
   "exports": {
     "./agent/node": {

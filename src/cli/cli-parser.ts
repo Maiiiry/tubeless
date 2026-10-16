@@ -544,6 +544,16 @@ export function resolveParam(
   return resolved;
 }
 
+// Plain decimals only. Number("") and Number(" ") are 0, and Number() also
+// accepts hex and exponent forms that a flag value should not imply.
+const DECIMAL_NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
+
+function decimalNumber(rawValue: string): number | undefined {
+  if (!DECIMAL_NUMBER.test(rawValue)) return undefined;
+  const value = Number(rawValue);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function validateNumberValue(
   flag: string,
   param: CliNumberParam,
@@ -552,11 +562,11 @@ function validateNumberValue(
   source: "argv" | "env" | "default" = "argv",
   envName?: string
 ): number | undefined {
-  const value = isNumberValue(rawValue) ? rawValue : Number(rawValue);
+  const value = isNumberValue(rawValue) ? rawValue : decimalNumber(rawValue);
   const displayValue = String(rawValue);
   const label = source === "env" ? `environment variable ${envName}` : `--${flag}`;
   const received = source === "env" ? "" : `, got "${displayValue}"`;
-  if (!Number.isFinite(value)) {
+  if (value === undefined || !Number.isFinite(value)) {
     errors.push(`${label} must be a number${received}`);
     return undefined;
   }

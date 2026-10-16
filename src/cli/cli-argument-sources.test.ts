@@ -119,6 +119,21 @@ describe("defineCommand: aliases, positionals, and environment fallbacks", () =>
     expect(result.kind === "error" && result.errors.join(" ")).not.toContain("not-for-output");
   });
 
+  it("rejects a blank numeric environment fallback instead of using zero or the default", () => {
+    const command = defineCommand({
+      params: { limit: { type: "number", integer: true, default: 5, env: "TUBELESS_LIMIT" } },
+      run: (values) => values,
+    });
+    expect(command.parse([], { env: { TUBELESS_LIMIT: "" } })).toMatchObject({
+      kind: "error",
+      errors: ["environment variable TUBELESS_LIMIT must be a number"],
+    });
+    expect(command.parse([], { env: { TUBELESS_LIMIT: " " } })).toMatchObject({
+      kind: "error",
+      errors: ["environment variable TUBELESS_LIMIT must be a number"],
+    });
+  });
+
   it("rejects ambiguous positional and environment declarations", () => {
     expect(() =>
       defineCommand({

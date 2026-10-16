@@ -17,6 +17,37 @@ describe("defineCommand: number params", () => {
     expect(result.kind === "error" && result.errors[0]).toContain('must be a number, got "abc"');
   });
 
+  it("rejects blank, whitespace, hex, and exponent forms instead of coercing them", () => {
+    const command = defineCommand({
+      params: { limit: { type: "number", default: 5 } },
+      run: (v) => v,
+    });
+    for (const argv of [
+      ["--limit="],
+      ["--limit", ""],
+      ["--limit", " "],
+      ["--limit", "0x10"],
+      ["--limit", "1e2"],
+    ]) {
+      const result = command.parse(argv);
+      expect(result.kind, argv.join(" ")).toBe("error");
+      expect(result.kind === "error" && result.errors[0]).toContain("must be a number");
+      expect(result.kind === "error" && result.errors[0]).not.toContain("got 0");
+    }
+    expect(command.parse(["--limit", "-2.5"])).toMatchObject({
+      kind: "values",
+      values: { limit: -2.5 },
+    });
+    expect(command.parse(["--limit", "+4"])).toMatchObject({
+      kind: "values",
+      values: { limit: 4 },
+    });
+    expect(command.parse(["--limit", ".5"])).toMatchObject({
+      kind: "values",
+      values: { limit: 0.5 },
+    });
+  });
+
   it("enforces integer, min, and max constraints", () => {
     const command = defineCommand({
       params: { limit: { type: "number", integer: true, min: 1, max: 10 } },

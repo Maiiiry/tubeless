@@ -246,7 +246,7 @@ sufficient when there are no domain inputs).
 | `displayName: string`         | Required `--display-name <value>`               |
 | Optional string or number     | Optional flag                                   |
 | String enum                   | Flag with checked choices and help text         |
-| Number or integer             | Numeric flag, with minimum/maximum checks       |
+| Number or integer             | Plain decimal, with minimum/maximum checks      |
 | Boolean                       | `--enabled` / `--no-enabled`; defaults to false |
 | String or number array        | Repeatable flag; defaults to `[]`               |
 | Scalar default or description | Default value or help text                      |

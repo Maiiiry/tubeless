@@ -671,13 +671,16 @@ tubeless init <target> [-p, --project <path>]
 ```
 
 Scaffold deployment files for a project. The one target today is `cloudflare`,
-which writes `cloudflare/worker.ts` and `cloudflare.config.ts`; the
+which writes `cloudflare/worker.ts`, `cloudflare.config.ts` and `vite.config.ts`, and
+prints an install step that pins `cf`, `vite` and `@cloudflare/vite-plugin`; the
 [Cloudflare guide](./deploy-cloudflare.md) covers deploying them.
 `--project` selects the project file (default `./tubeless.project.ts`).
 
 `init` loads the project and derives every command before it writes anything, so
 a broken project fails with the usual load error. It never overwrites: if any
-target file already exists, it names the conflicts and writes nothing. After
+target file already exists (for `cloudflare`, also any other Vite config file), it
+names the conflicts and writes nothing. It warns when Node is older than the target's
+deploy tooling needs (22.12 for `cloudflare`). After
 creating the files it prints the next steps for the target. An unknown target or a
 missing target argument is a usage error.
 

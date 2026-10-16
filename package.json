@@ -75,6 +75,7 @@
     "eval:agent": "bun run build && node scripts/eval-agent.mjs"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "2.0.0-beta.sha-52b0dc0e9",
     "@dagster-io/dagster-pipes": "0.1.0",
     "@inngest/test": "1.0.0",
     "@temporalio/activity": "1.24.0",
@@ -94,6 +95,7 @@
     "preact": "11.0.1",
     "preact-render-to-string": "6.8.1",
     "typescript": "7.0.2",
+    "vite": "8.3.4",
     "vitest": "5.0.4"
   },
   "exports": {

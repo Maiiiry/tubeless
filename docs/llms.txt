@@ -116,6 +116,7 @@ Executable examples:
 - ../examples/step-functions/template.json
 - ../examples/cloudflare/cloudflare.config.ts
 - ../examples/cloudflare/cloudflare/worker.ts
+- ../examples/cloudflare/vite.config.ts
 - ../examples/fan-out-progress.ts
 - ../examples/resumable-enrichment.ts
 - ../examples/cli-job.ts

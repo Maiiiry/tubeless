@@ -28,6 +28,10 @@ export interface DeployTargetScaffold {
     /** "default" or the named export the project file exposes the project under. */
     readonly projectExport: string;
   }): readonly DeployTargetFile[];
+  /** Existing paths that block scaffolding although init would not write them, with a fix hint. */
+  readonly conflictsWith?: readonly { readonly path: string; readonly hint: string }[];
+  /** Node version the target's deploy tooling needs; init warns (does not fail) below it. */
+  readonly minimumNode?: { readonly version: string; readonly reason: string };
   readonly nextSteps: readonly string[];
 }
 
@@ -46,6 +50,19 @@ Options:
   -p, --project <path>  Project file (default: ./tubeless.project.ts)
   -h, --help            Show this help
 `;
+
+/** True when `current` (for example "22.11.0") is at least `minimum` ("22.12.0"); prerelease tags are ignored. */
+export function nodeVersionAtLeast(current: string, minimum: string): boolean {
+  const parse = (version: string) =>
+    version.replace(/^v/, "").split("-")[0]!.split(".").map(Number);
+  const [a, b] = [parse(current), parse(minimum)];
+  for (let index = 0; index < 3; index += 1) {
+    const left = a[index] ?? 0;
+    const right = b[index] ?? 0;
+    if (left !== right) return left > right;
+  }
+  return true;
+}
 
 /** Anything but a clean "not found" (for example ENOTDIR) counts as occupied, so init never writes through it. */
 async function occupied(path: string): Promise<boolean> {
@@ -96,11 +113,23 @@ export async function runInit(argv: readonly string[], io: WorkbenchCliIo): Prom
         const conflicts: string[] = [];
         for (const file of files)
           if (await occupied(resolve(commandIo.cwd, file.path))) conflicts.push(file.path);
-        if (conflicts.length > 0) {
-          commandIo.stderr.write(
-            `Error: Refusing to overwrite existing files: ${conflicts.join(", ")}\n`
-          );
+        const related: string[] = [];
+        for (const { path, hint } of target.conflictsWith ?? [])
+          if (await occupied(resolve(commandIo.cwd, path)))
+            related.push(`${path} already exists. ${hint}`);
+        if (conflicts.length > 0 || related.length > 0) {
+          if (conflicts.length > 0)
+            commandIo.stderr.write(
+              `Error: Refusing to overwrite existing files: ${conflicts.join(", ")}\n`
+            );
+          for (const message of related) commandIo.stderr.write(`Error: ${message}\n`);
           return TUBELESS_WORKBENCH_EXIT_CODE.usage;
+        }
+        const node = process.versions.bun === undefined ? process.versions.node : undefined;
+        if (target.minimumNode && node && !nodeVersionAtLeast(node, target.minimumNode.version)) {
+          commandIo.stderr.write(
+            `Warning: Node ${node} is older than ${target.minimumNode.version}; ${target.minimumNode.reason}.\n`
+          );
         }
         const created: string[] = [];
         for (const file of files) {

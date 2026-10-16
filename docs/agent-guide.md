@@ -236,6 +236,8 @@ read when a pipeline needs them.
 - To host Studio and a project on Cloudflare, run `tubeless init cloudflare` and follow
   [the deploy guide](./deploy-cloudflare.md); do not hand-write the Worker or its
   configuration. The scaffold never overwrites files and loads the project first.
+  Keep its `vite.config.ts` and install the exact `cf`, `vite` and
+  `@cloudflare/vite-plugin` versions it prints; `cf deploy` builds through that plugin.
   Keep the fixed binding names `TUBELESS_STUDIO`, `TUBELESS_RUN`, `TUBELESS_BUCKET`,
   `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`.
 - Keep handlers Workers-compatible: no durable filesystem writes, no `v8` serialization.

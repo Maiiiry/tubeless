@@ -282,8 +282,9 @@ Read the corresponding package recipe before using these features:
   read the composition guides before adding child or remote execution.
 - To host Studio and a project on Cloudflare, use `tubeless init cloudflare` and read
   `docs/deploy-cloudflare.md`: runs are limited to 14 minutes, and secrets stay out of
-  config text bindings. Cached steps need `createR2CacheStore` and `jsonCacheCodec` from
-  `tubeless/cloudflare/cache` (never `tubeless/cloudflare`, which loads only in workerd),
+  config text bindings. Keep the scaffold's `vite.config.ts` and install the exact
+  `cf`, `vite` and `@cloudflare/vite-plugin` versions it prints. Cached steps need
+  `createR2CacheStore` and `jsonCacheCodec` from `tubeless/cloudflare/cache` (never `tubeless/cloudflare`, which loads only in workerd),
   with the bucket bound from `cloudflare/worker.ts` through the guide's getter pattern.
 - Use `context.recordArtifact({ operation, artifact })` within ordinary steps to
   record successful reads, writes, or verified reuse without changing domain outputs.

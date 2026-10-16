@@ -43,6 +43,42 @@ const { answer } = await agent.runOrThrow(
 );
 ```
 
+### Choose a model provider
+
+`model` accepts any `AgentModel`. Tubeless ships two optional, dependency-free adapters
+with the same option names, so switching providers changes one import and one call:
+
+```ts
+import { defineModelAgent } from "tubeless/agent";
+import { anthropicModel } from "tubeless/agent/anthropic";
+import { openaiModel } from "tubeless/agent/openai";
+
+// Claude through the Anthropic Messages API (ANTHROPIC_API_KEY).
+const claude = defineModelAgent({ id: "coding", model: anthropicModel() });
+
+// OpenAI through the Responses API (OPENAI_API_KEY).
+const gpt = defineModelAgent({ id: "coding", model: openaiModel() });
+```
+
+| Option              | `anthropicModel()`                                                         | `openaiModel()`                                     |
+| ------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
+| `model`             | `ANTHROPIC_MODEL`, else `claude-opus-5-5`                                  | `OPENAI_MODEL`, else `gpt-5.4-mini`                 |
+| `apiKey`            | `ANTHROPIC_API_KEY` (`x-api-key`); else `ANTHROPIC_AUTH_TOKEN` as a bearer | `OPENAI_API_KEY` (bearer)                           |
+| `authToken`         | Explicit bearer token, for compatible servers that expect one              | Not applicable (`apiKey` is already a bearer)       |
+| `baseUrl`           | `ANTHROPIC_BASE_URL`, else `https://api.anthropic.com` (no `/v1`)          | `OPENAI_BASE_URL`, else `https://api.openai.com/v1` |
+| `reasoningEffort`   | Omitted; `low` through `max` sends `output_config.effort`                  | Omitted; `none` through `max` sends `reasoning`     |
+| `compactAfterBytes` | 64 KiB; `null` disables compaction                                         | 64 KiB; `null` disables compaction                  |
+| `timeoutMs`         | 600000 per decision                                                        | 60000 per decision                                  |
+| `maxTokens`         | 32000 output tokens per request, thinking included                         | Not applicable                                      |
+| `strict`            | `true`; `false` sends tools without strict mode                            | Always strict                                       |
+| `promptCaching`     | `true` sends top-level `cache_control`; `false` omits it                   | Not applicable                                      |
+
+Every environment value is read when a decision executes, so imports, plans and dry
+runs need no credentials. Options always take precedence over the environment.
+The executable [Claude recipe](../examples/agent-model-anthropic.ts) is registered as
+`claude-coding-agent` beside the OpenAI-backed `coding-agent`. To use another
+server that implements either API, see [compatible APIs](#compatible-apis).
+
 The factory supplies the `{ task: string }` input and `{ answer: string }` result
 schemas, default tools, a short coding prompt, conversation state, and reduction.
 Add `instructions` to customize its behavior, `tools` to extend or override the
@@ -169,6 +205,142 @@ export OPENAI_API_KEY=...
 bun /path/to/tubeless/dist/workbench/workbench-bin.js run \
   /path/to/tubeless/examples/agent-model.ts -- --task 'Fix the failing test and verify it'
 ```
+
+### Anthropic adapter
+
+`anthropicModel()` from `tubeless/agent/anthropic` calls the
+[Messages API](https://platform.claude.com/docs/en/api/messages) with native fetch and
+no SDK dependency. It follows the same harness contract as the OpenAI adapter: tool
+arguments are wrapped in `{ input }`, `_finish` carries `{ result }`, references are
+rejected locally, requests are capped at 1 MiB and responses at 2 MiB, and large tool
+batches receive the same marked previews.
+
+The adapter keeps every returned content block, including thinking blocks and their
+signatures, and appends one user message of `tool_result` blocks per batch. A later
+prompt on the same conversation closes `_finish` with a `tool_result` and adds the new
+task to that user message, because the Messages API cannot follow a user message with
+another user message. Compaction runs on that completed history before the new task is
+appended, and the task stays verbatim. Direct `defineModelAgent` runs remain isolated.
+Recoverable tool failures set `is_error: true`. History is never edited except by
+compaction, which keeps it valid for models that check replayed thinking. Current
+Claude models reject forced tool choice, so the adapter sends `tool_choice: "auto"` and
+instructs the model to respond only with tool calls. If a reply contains no tool call,
+the adapter appends that reply and one reminder, then asks once more. A second text-only
+reply fails the decision. Requests set top-level `cache_control` so repeated turns reuse
+the cached prefix.
+
+With `strict: true` (the default), tools use
+[strict tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use).
+Every object must set `additionalProperties: false`; unlike OpenAI, optional properties
+are allowed. The schema the model sees keeps only what strict mode accepts: types,
+`properties`, `required`, `items`, `anyOf`, `allOf` (`oneOf` becomes `anyOf`), scalar
+`enum` and `const`, `default`, supported string formats, and `minItems` of 0 or 1.
+A schema with scalar `enum` or `const` and no type gets one: a shared type when every
+value agrees, `number` when the values are only integers and numbers, or `anyOf` of
+typed enums when the values mix types. A schema with neither a type nor `anyOf`/`allOf`
+is rejected locally. Every other keyword, such as length, numeric, and pattern
+constraints, is recorded in that schema's `description` instead. Tubeless still
+validates every argument against the full schema. Tool names longer than 64 characters
+are rejected locally; the harness itself allows 128.
+Strict mode allows at most 20 strict tools per request, including `_finish`, plus
+limits on optional and union-typed parameters. Set `strict: false` for larger tool sets
+or servers without strict support.
+
+Once completed history exceeds `compactAfterBytes`, or a complete decision would exceed
+the request limit, the adapter requests
+[on-demand compaction](https://platform.claude.com/docs/en/build-with-claude/compaction-on-demand)
+with the same system prompt and tools. It replaces the history with the returned assistant
+message, holding the signed summary block unchanged, followed by a short user continuation message. The `compact-2026-09-04` beta header is
+sent only on that request and on later requests carrying the block. If no summary comes
+back, the decision continues with the uncompacted history and the request limit still
+applies. Set `compactAfterBytes: null` for servers or models without compaction.
+
+A decision makes at most three HTTP requests: optional compaction, the decision, and
+one tool-call reminder. `max_tokens`, refusal, and other unexpected stop reasons fail
+explicitly; raise `maxTokens` when long thinking reaches the cap. Run the Claude recipe
+the same way as the OpenAI one:
+
+```sh
+export ANTHROPIC_API_KEY=...
+bun /path/to/tubeless/dist/workbench/workbench-bin.js run \
+  /path/to/tubeless/examples/agent-model-anthropic.ts -- --task 'Fix the failing test and verify it'
+```
+
+### Compatible APIs
+
+Both adapters work with any server that implements the same protocol: hosted routers,
+inference platforms, self-hosted servers, and gateways. Set `baseUrl` (or
+`OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`), the provider's credential, and the
+provider's model ID. Then turn off features the server does not support:
+
+- `openaiModel()` needs the **Responses API** (`POST {baseUrl}/responses`), not only
+  Chat Completions. `baseUrl` includes the version path. Set `compactAfterBytes: null`
+  unless the server implements `/responses/compact`. The adapter sends `store: false`
+  and `include: ["reasoning.encrypted_content"]`.
+- `anthropicModel()` needs the **Messages API** (`POST {baseUrl}/v1/messages`).
+  `baseUrl` excludes `/v1`. Most compatible servers expect a bearer token, so pass
+  `authToken` (or set `ANTHROPIC_AUTH_TOKEN`) instead of `apiKey`. Set `strict: false`,
+  `promptCaching: false`, and `compactAfterBytes: null` unless the server documents
+  strict tool use, `cache_control`, and on-demand compaction.
+
+```ts
+import { defineModelAgent } from "tubeless/agent";
+import { anthropicModel } from "tubeless/agent/anthropic";
+import { openaiModel } from "tubeless/agent/openai";
+
+// OpenRouter through its Responses endpoint.
+export const RouterAgent = defineModelAgent({
+  id: "router-coding",
+  model: openaiModel({
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKey: process.env.OPENROUTER_API_KEY,
+    model: "anthropic/claude-opus-5",
+    compactAfterBytes: null,
+  }),
+});
+
+// Baseten through its Messages endpoint (bearer auth; x-api-key is rejected).
+export const BasetenAgent = defineModelAgent({
+  id: "baseten-coding",
+  model: anthropicModel({
+    baseUrl: "https://inference.baseten.co",
+    authToken: process.env.BASETEN_API_KEY,
+    model: "deepseek-ai/DeepSeek-V4-Pro",
+    strict: false,
+    promptCaching: false,
+    compactAfterBytes: null,
+  }),
+});
+```
+
+`process.env` in a module is read at import, unlike the adapters' own variables. To keep
+credentials out of imports and plans, set the conventional variables instead, such as
+`OPENAI_BASE_URL` and `OPENAI_API_KEY`, or `ANTHROPIC_BASE_URL` and
+`ANTHROPIC_AUTH_TOKEN`. Then call `openaiModel()` or `anthropicModel()` with only the
+remaining options. With `ANTHROPIC_AUTH_TOKEN`, leave `ANTHROPIC_API_KEY` unset; when
+both variables are set, the API key takes precedence.
+
+These base URLs come from each provider's documentation as of October 2026. Check the
+provider's current documentation for model IDs, tool support, and limits:
+
+| Provider          | `openaiModel({ baseUrl })`                      | `anthropicModel({ baseUrl })`                        | Notes                                                                    |
+| ----------------- | ----------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------ |
+| OpenRouter        | `https://openrouter.ai/api/v1`                  | `https://openrouter.ai/api`                          | Bearer auth (`authToken`); model slugs such as `anthropic/claude-opus-5` |
+| Baseten           | Not available (Chat Completions only)           | `https://inference.baseten.co`                       | Messages is in beta; bearer auth (`authToken`)                           |
+| Fireworks         | `https://api.fireworks.ai/inference/v1`         | `https://api.fireworks.ai/inference`                 | Bearer auth; `accounts/fireworks/models/...` model IDs                   |
+| DeepSeek          | `https://api.deepseek.com`                      | `https://api.deepseek.com/anthropic`                 | Ignores `cache_control`                                                  |
+| Moonshot (Kimi)   | `https://api.moonshot.ai/v1`                    | `https://api.moonshot.ai/anthropic`                  | Bearer auth (`authToken`)                                                |
+| Amazon Bedrock    | `https://bedrock-mantle.{region}.api.aws/v1`    | `https://bedrock-mantle.{region}.api.aws/anthropic`  | Bedrock API key; Bedrock model IDs                                       |
+| Microsoft Foundry | `https://{resource}.openai.azure.com/openai/v1` | `https://{resource}.services.ai.azure.com/anthropic` | `model` is the deployment name                                           |
+| Ollama            | `http://localhost:11434/v1`                     | `http://localhost:11434`                             | Local keys can be any placeholder value                                  |
+| vLLM              | `http://{host}:8000/v1`                         | `http://{host}:8000`                                 | Self-hosted                                                              |
+| LiteLLM proxy     | `http://localhost:4000/v1`                      | `http://localhost:4000`                              | Supports `/responses/compact`; bridges providers without either API      |
+
+Groq's Responses endpoint rejects `store` and `include`, which the OpenAI adapter
+always sends. Google Vertex AI puts the model in the request path and uses OAuth
+instead of a base URL plus key. Reach either one through a gateway such as LiteLLM.
+Compatible servers vary in how closely they follow each protocol. Exercise a new
+provider with a small task before relying on it.
 
 Run the opt-in live evaluations from the package root with `bun run eval:agent`.
 They create disposable workspaces and check investigation, actual edits, successful

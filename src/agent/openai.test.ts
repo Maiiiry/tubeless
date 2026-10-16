@@ -484,4 +484,48 @@ describe("OpenAI model", () => {
     });
     expect(fetcher.mock.calls[0]![1]!.signal).toBeInstanceOf(AbortSignal);
   });
+
+  it("targets compatible Responses servers by option or OPENAI_BASE_URL", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => response([finish()]));
+    vi.stubGlobal("fetch", fetcher);
+    vi.stubEnv("OPENAI_BASE_URL", "https://router.example.com/api/v1/");
+    await defineModelAgent({
+      id: "env-base",
+      projectContext: false,
+      model: openaiModel({ apiKey: "fixture" }),
+    }).runOrThrow({ task: "Do work" });
+    await defineModelAgent({
+      id: "explicit-base",
+      projectContext: false,
+      model: openaiModel({ apiKey: "fixture", baseUrl: "http://localhost:11434/v1" }),
+    }).runOrThrow({ task: "Do work" });
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      "https://router.example.com/api/v1/responses",
+      "http://localhost:11434/v1/responses",
+    ]);
+  });
+
+  it.each(["ftp://example.com", "not a url", "https://host/v1?tenant=abc", "https://host/v1#x"])(
+    "rejects an invalid base URL: %s",
+    (baseUrl) => {
+      expect(() => openaiModel({ baseUrl })).toThrow("Invalid OpenAI base URL");
+    }
+  );
+
+  it("never calls /responses/compact when compaction is disabled", async () => {
+    const cwd = await workspace();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response([call("read", { path: "target" })]))
+      .mockResolvedValueOnce(response([finish()]));
+    vi.stubGlobal("fetch", fetcher);
+    await defineModelAgent({
+      id: "no-compaction",
+      model: openaiModel({ apiKey: "fixture", compactAfterBytes: null }),
+    }).runOrThrow({ task: "Read target" }, undefined, { cwd });
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.openai.com/v1/responses",
+      "https://api.openai.com/v1/responses",
+    ]);
+  });
 });

@@ -263,8 +263,14 @@
     {
       "declaration": "./dist/agent/openai.d.ts",
       "exports": ["openaiModel", "OpenAIModelOptions"],
-      "sha256": "a069637d0c00736ef67c7ef13f3ca798672171ffb434fae52df7ecd1cc0a784a",
+      "sha256": "bb2f61e5d23cd96a8881c60546b669a5c4ec66ced05b7f89f9ebeedf6f7b092b",
       "specifier": "tubeless/agent/openai"
+    },
+    {
+      "declaration": "./dist/agent/anthropic.d.ts",
+      "exports": ["anthropicModel", "AnthropicModelOptions"],
+      "sha256": "29cf945ffc07c4adda8b206eb23ac02fd279957c12ee6a7f205ca8d806f10412",
+      "specifier": "tubeless/agent/anthropic"
     },
     {
       "declaration": "./dist/cloudflare/cloudflare.d.ts",

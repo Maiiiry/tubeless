@@ -414,7 +414,12 @@ read when a pipeline needs them.
   [provider plugin example](../examples/agent-repl-model.ts).
 
 - For a general workspace agent, use `defineModelAgent({ id, model })` from
-  `tubeless/agent` with `openaiModel()` from `tubeless/agent/openai`. It supplies
+  `tubeless/agent` with `openaiModel()` from `tubeless/agent/openai` or
+  `anthropicModel()` from `tubeless/agent/anthropic`. Both adapters share option
+  names; set `baseUrl` (or `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`) for compatible
+  servers such as OpenRouter or a gateway, and `compactAfterBytes: null` when the
+  server lacks compaction. See [providers](./agents.md#choose-a-model-provider) and
+  [compatible APIs](./agents.md#compatible-apis). It supplies
   task/answer schemas, a customizable coding prompt, startup AGENTS.md discovery
   from the physical workspace directory, shared by the model and all tool calls,
   and per-run conversation ownership. The optional provider adapter retains native

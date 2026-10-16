@@ -1,6 +1,8 @@
 import type { AgentModel } from "./model-types.js";
-import { MAX_REQUEST_BYTES, openaiRequest } from "./openai-http.js";
-import { openaiDecision, outputItems, parameter, record } from "./openai-protocol.js";
+import { openaiRequest } from "./openai-http.js";
+import { MAX_REQUEST_BYTES, providerBaseUrl } from "./provider-http.js";
+import { record } from "./provider-schema.js";
+import { openaiDecision, outputItems, parameter } from "./openai-protocol.js";
 import { openaiToolOutputs } from "./openai-tool-outputs.js";
 import { throwIfAborted } from "../utilities/abort.js";
 
@@ -10,6 +12,11 @@ export interface OpenAIModelOptions {
   readonly model?: string;
   /** Defaults to OPENAI_API_KEY at execution time. */
   readonly apiKey?: string;
+  /**
+   * Responses API root, including the version path. Defaults to OPENAI_BASE_URL or
+   * https://api.openai.com/v1; set it for any server that implements the Responses API.
+   */
+  readonly baseUrl?: string;
   /** Omitted by default. Set explicitly for models that support reasoning; null also omits it. */
   readonly reasoningEffort?:
     | "none"
@@ -20,8 +27,11 @@ export interface OpenAIModelOptions {
     | "xhigh"
     | "max"
     | null;
-  /** Compact above this history size (default 65536 bytes), or when the complete decision exceeds the request limit. */
-  readonly compactAfterBytes?: number;
+  /**
+   * Compact above this history size (default 65536 bytes), or when the complete decision
+   * exceeds the request limit. null never calls /responses/compact, for servers without it.
+   */
+  readonly compactAfterBytes?: number | null;
   /** Combined deadline for compaction and decision requests; defaults to 60000 ms. */
   readonly timeoutMs?: number;
 }
@@ -31,14 +41,17 @@ export function openaiModel(options: OpenAIModelOptions = {}): AgentModel {
   const {
     model,
     apiKey,
+    baseUrl,
     reasoningEffort = null,
     compactAfterBytes = 65_536,
     timeoutMs = 60_000,
   } = options;
   if (
-    !Number.isSafeInteger(compactAfterBytes) ||
-    compactAfterBytes < 1 ||
-    compactAfterBytes >= MAX_REQUEST_BYTES ||
+    (compactAfterBytes !== null &&
+      (!Number.isSafeInteger(compactAfterBytes) ||
+        compactAfterBytes < 1 ||
+        compactAfterBytes >= MAX_REQUEST_BYTES)) ||
+    (baseUrl !== undefined && typeof baseUrl !== "string") ||
     !Number.isSafeInteger(timeoutMs) ||
     timeoutMs < 1 ||
     timeoutMs > 2_147_483_647 ||
@@ -48,6 +61,7 @@ export function openaiModel(options: OpenAIModelOptions = {}): AgentModel {
       !["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(reasoningEffort))
   )
     throw new Error("Invalid OpenAI model configuration");
+  if (baseUrl !== undefined) providerBaseUrl("OpenAI", baseUrl);
   return async (request, context) => {
     const selectedModel = (model ?? process.env.OPENAI_MODEL)?.trim() || "gpt-5.4-mini";
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -94,6 +108,7 @@ export function openaiModel(options: OpenAIModelOptions = {}): AgentModel {
     };
     const completedInput = [...input, ...openaiToolOutputs(request.outcomes, MAX_REQUEST_BYTES)];
     const shouldCompact =
+      compactAfterBytes !== null &&
       (request.outcomes.length > 0 || (newPrompt && request.conversation !== null)) &&
       (Buffer.byteLength(JSON.stringify(completedInput)) > compactAfterBytes ||
         Buffer.byteLength(JSON.stringify({ ...decisionRequest, input: completedInput })) >
@@ -119,7 +134,8 @@ export function openaiModel(options: OpenAIModelOptions = {}): AgentModel {
         "responses/compact",
         { ...compactRequest, input },
         apiKey,
-        signal
+        signal,
+        baseUrl
       );
       if (!record(compacted) || compacted.object !== "response.compaction")
         throw new Error("OpenAI returned invalid compaction");
@@ -128,7 +144,13 @@ export function openaiModel(options: OpenAIModelOptions = {}): AgentModel {
       if (newPrompt) input.push({ role: "user", content: request.task });
       context.log.log("Compacted agent conversation");
     }
-    const body = await openaiRequest("responses", { ...decisionRequest, input }, apiKey, signal);
+    const body = await openaiRequest(
+      "responses",
+      { ...decisionRequest, input },
+      apiKey,
+      signal,
+      baseUrl
+    );
     if (!record(body) || body.status !== "completed")
       throw new Error("OpenAI did not return a completed response");
     const output = outputItems(body);

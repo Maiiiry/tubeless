@@ -64,7 +64,7 @@ describe("module runtime boundaries", () => {
       const file = pending.pop()!;
       if (visited.has(file)) continue;
       visited.add(file);
-      expect(relative(dist, file)).not.toMatch(/openai/);
+      expect(relative(dist, file)).not.toMatch(/openai|anthropic|provider-/);
       pending.push(...dependencies(file));
     }
     expect(visited.has(resolve(dist, "agent/model-agent.js"))).toBe(true);

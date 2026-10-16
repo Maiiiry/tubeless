@@ -175,6 +175,7 @@ try {
     "examples/agent.ts",
     "examples/agent-workspace.ts",
     "examples/agent-model.ts",
+    "examples/agent-model-anthropic.ts",
     "examples/agent-delegation.ts",
     "examples/agent-pipeline.ts",
     "examples/agent-openai.ts",

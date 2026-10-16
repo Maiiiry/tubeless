@@ -13,6 +13,7 @@ import { ScriptedAgent } from "../agent.ts";
 import { DelegatingAgentCommand } from "../agent-delegation.ts";
 import { AgentPipelineCommand } from "../agent-pipeline.js";
 import { CodingAgent } from "../agent-model.js";
+import { ClaudeCodingAgent } from "../agent-model-anthropic.js";
 import { EnvironmentWorkspaceAgent } from "../agent-environment.js";
 import { DurableWorkspaceAgent } from "../agent-durable.js";
 import { OpenAIAgentCommand } from "../agent-openai.ts";
@@ -44,6 +45,7 @@ export default defineProject(
     // Live model decisions and tools share the physical run cwd, including through symlinks.
     // Scoped guidance precedes nested file operations and task commands in separate turns.
     CodingAgent,
+    ClaudeCodingAgent,
     EnvironmentWorkspaceAgent,
     DurableWorkspaceAgent,
     // Record with --trace/--store; history <run-id> shows turns, calls and child agents.

@@ -127,7 +127,14 @@ Read the corresponding package recipe before using these features:
 
 - `defineModelAgent({ id, model })` from `tubeless/agent` for a ready-to-run
   workspace agent. `openaiModel()` from `tubeless/agent/openai` supplies the optional
-  Responses adapter. Reasoning settings are omitted unless explicitly configured;
+  Responses adapter; `anthropicModel()` from `tubeless/agent/anthropic` supplies the
+  Messages adapter with the same option names (`model`, `apiKey`, `baseUrl`,
+  `reasoningEffort`, `compactAfterBytes`, `timeoutMs`). Set `baseUrl` (or
+  `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`) for any compatible server, and
+  `compactAfterBytes: null` when it lacks compaction. Most Anthropic-compatible
+  servers need `authToken` (bearer), `strict: false`, and `promptCaching: false`; see
+  `docs/agents.md#compatible-apis`.
+  Reasoning settings are omitted unless explicitly configured;
   the coding recipe opts into `reasoningEffort: "high"` for a supported model.
   Run with `{ task }` to get `{ answer }`; add `instructions`,
   tools or execution limits as needed. The factory loads startup AGENTS.md guidance
@@ -138,8 +145,11 @@ Read the corresponding package recipe before using these features:
   must be inline; provide
   `inputJsonSchema` when generated descriptors contain references. All object
   properties must be required, with `additionalProperties: false` at every object.
+  Anthropic strict tools allow optional properties but cap a request at 20 strict
+  tools; set `strict: false` for larger registries.
   Large output batches use explicit model-visible previews; harness outcomes remain
-  complete. Read `docs/agents.md` and `examples/agent-model.ts` for
+  complete. Read `docs/agents.md`, `examples/agent-model.ts`, and
+  `examples/agent-model-anthropic.ts` for
   context-loading scope, byte bounds and live-evaluation instructions. Custom
   `defineAgent` and `decide` remain the lower-level path.
 

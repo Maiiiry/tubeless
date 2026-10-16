@@ -62,7 +62,7 @@ Agent instructions:
 
 Advanced:
 
-- In-process agents: ./agents.md (default read/write/edit/bash/list/search tools, custom tools, scripted and OpenAI examples, pipelineTool delegation, shared subtree limits; crash-safe resume is not yet implemented)
+- In-process agents: ./agents.md (default read/write/edit/bash/list/search tools, custom tools, scripted, OpenAI and Anthropic examples, compatible-API configuration, pipelineTool delegation, shared subtree limits; crash-safe resume is not yet implemented)
 - Child pipelines: ./child-pipeline-composition.md
 - Remote steps: ./remote-step-composition.md
 - Tubeless and Airflow: ./airflow.md
@@ -77,6 +77,7 @@ Executable examples:
 
 - ../examples/agent.ts
 - ../examples/agent-model.ts
+- ../examples/agent-model-anthropic.ts
 - ../examples/agent-openai.ts
 - ../examples/agent-delegation.ts
 - ../examples/agent-pipeline.ts

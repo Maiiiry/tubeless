@@ -29,6 +29,7 @@ one of these recipes.
 | Run a bounded in-process agent                          | [`agent.ts`](../examples/agent.ts)                                                                                                                      | `defineAgent`, `defineTool`, ordered outcomes, immutable state; [guide](./agents.md)                                                                                            |
 | Resume a workspace agent after a restart                | [`agent-durable.ts`](../examples/agent-durable.ts)                                                                                                      | SQLite checkpoints, stable execution keys, saved conversation and outcomes; [contract](./agents.md#durable-execution)                                                           |
 | Run a model-backed workspace agent                      | [`agent-model.ts`](../examples/agent-model.ts)                                                                                                          | Default prompt, project instructions, native conversation and compaction; [setup](./agents.md#default-model-backed-agent)                                                       |
+| Run the workspace agent on Claude                       | [`agent-model-anthropic.ts`](../examples/agent-model-anthropic.ts)                                                                                      | `anthropicModel()`, Messages API, compaction; [providers](./agents.md#choose-a-model-provider)                                                                                  |
 | Prompt an agent repeatedly with live pipeline reporting | [`agent-repl-model.ts`](../examples/agent-repl-model.ts)                                                                                                | `tubeless agent`, retained conversation, `/clear`, shared reporter, Tab completion, model selection, `--env-file`, pluggable provider; [CLI](./cli.md#prompt-a-workspace-agent) |
 | Wait for user review before continuing                  | [`user-input.ts`](../examples/user-input.ts)                                                                                                            | `waitForInput`, typed pluggable input, cancellation, dry-run preview; [contract](./concepts.md#wait-for-user-or-application-input)                                              |
 | Ask for choices, confirmation, or text in YAML          | [`yaml-user-input.ts`](../examples/yaml-user-input.ts)                                                                                                  | Registered `waitForInput(...).run`, output schemas, declined confirmation skip; [guide](./declarative-pipelines.md#user-decisions-confirmations-and-text)                       |
@@ -69,7 +70,9 @@ one of these recipes.
 The [model-agent recipe](../examples/agent-model.ts) explicitly requests high reasoning;
 omit that option when selecting a model that does not support it. The recipe loads guidance from the physical
 workspace path and uses that same cwd for all tool calls. The prompt requires nested guidance
-before file operations or task commands in its scope. Custom OpenAI tools need inline strict schemas; oversized result
+before file operations or task commands in its scope. The [Claude recipe](../examples/agent-model-anthropic.ts)
+uses the same factory with `anthropicModel()`; both adapters accept `baseUrl` for
+[compatible APIs](./agents.md#compatible-apis). Custom OpenAI tools need inline strict schemas; oversized result
 batches use explicit previews while the harness keeps complete outcomes. See the
 [model-agent contract](./agents.md#default-model-backed-agent).
 Record the [delegation recipe](../examples/agent-delegation.ts) with `--trace` or

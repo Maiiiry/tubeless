@@ -57,7 +57,7 @@ const composition = readFileSync(join(__REPO_ROOT__, "examples/agent-pipeline.ts
         <h2>Start with a model and a task.</h2>
         <p>Save this as <code>agent.ts</code>. It gives the model a coding prompt, project instructions from <code>AGENTS.md</code>, conversation history, and six workspace tools.</p>
         <p class="tools"><code>read</code><code>edit</code><code>write</code><code>bash</code><code>list</code><code>search</code></p>
-        <p>Add your own tools and instructions as needed. The core is provider-independent: use the OpenAI adapter shown here, supply another model callback, or write your own decision logic with <code>defineAgent</code>.</p>
+        <p>Add your own tools and instructions as needed. The core is provider-independent: use the OpenAI adapter shown here, swap in <code>anthropicModel()</code> from <code>tubeless/agent/anthropic</code>, point either adapter at a compatible API with <code>baseUrl</code>, supply another model callback, or write your own decision logic with <code>defineAgent</code>.</p>
         <a href={githubBlob("examples/agent-workspace.ts")}>Add a custom tool ↗</a>
       </div>
       <div class="code-panel"><CodeBlock code={starter} lang="ts" /></div>

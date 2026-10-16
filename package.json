@@ -159,6 +159,11 @@
       "import": "./dist/agent/openai.js",
       "default": "./dist/agent/openai.js"
     },
+    "./agent/anthropic": {
+      "types": "./dist/agent/anthropic.d.ts",
+      "import": "./dist/agent/anthropic.js",
+      "default": "./dist/agent/anthropic.js"
+    },
     "./cloudflare": {
       "types": "./dist/cloudflare/cloudflare.d.ts",
       "import": "./dist/cloudflare/cloudflare.js",

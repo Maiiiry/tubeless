@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@astrojs/markdown-satteri": "0.4.3",
-    "astro": "7.3.6",
+    "astro": "7.3.8",
     "satteri": "0.10.5"
   }
 }

@@ -97,7 +97,8 @@ expands in place and stays open after it finishes; select the badge to expand or
 collapse any step. Fan-out items,
 iterations, agent turns, and agent tool calls appear inside the expansion, and tool
 calls are labeled by tool. Nested runs can expand again to show their own steps, up
-to six levels deep and sixteen items per step; the run list shows the rest.
+to six levels deep and sixteen items per step. The nested run list opens the rest
+sixteen per step at a time.
 Select a step, arrow, or nested run to inspect its inputs and outputs, progress,
 attempt, artifacts, and nested runs, or to open a nested run. Recordings made before
 dependencies were recorded show steps without arrows. Animations respect the

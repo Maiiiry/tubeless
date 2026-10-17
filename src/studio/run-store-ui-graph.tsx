@@ -7,7 +7,11 @@ import { StepArtifacts } from "./run-store-ui-artifacts.js";
 import { layoutDag } from "./run-store-ui-graph-layout.js";
 import type { StudioApi } from "./run-store-ui-client-transport.js";
 import { DEFAULT_DETAIL_RETRY_MS } from "./run-store-ui-data-controller.js";
-import type { StudioRunDetail } from "./run-store-ui-schema.js";
+import {
+  STUDIO_CHILD_PAGE_SIZE,
+  type StudioChildStep,
+  type StudioRunDetail,
+} from "./run-store-ui-schema.js";
 import { duration, shortId, Status, StepRow } from "./run-store-ui-steps.js";
 
 const SLOT_WIDTH = 124;
@@ -22,7 +26,7 @@ const FRAME_PADDING = 12;
 const FRAME_HEADER = 26;
 const MORE_HEIGHT = 18;
 const ITEM_COLUMNS = 4;
-const ITEM_LIMIT = 16;
+const ITEM_LIMIT = STUDIO_CHILD_PAGE_SIZE;
 const MAX_DEPTH = 6;
 const MARGIN = 18;
 /** Approximate advance of the 9px monospace frame header font. */
@@ -129,6 +133,8 @@ interface SceneContext {
   readonly wanted: Set<string>;
   readonly runs: Map<string, StoredPipelineRun>;
   readonly children: Map<string, readonly StoredRunSummary[]>;
+  /** Direct-child totals per parent step. The children map holds only the drawn page. */
+  readonly childSteps: Map<string, readonly StudioChildStep[]>;
   readonly summaries: Map<string, StoredRunSummary>;
 }
 
@@ -219,6 +225,15 @@ function itemTop(item: PlacedItem & { kind: string; graph?: RunScene }): number 
   return item.y + (item.kind === "run" && item.graph ? 0 : CENTER_Y - RADIUS - 3);
 }
 
+function childStepTotal(
+  childSteps: readonly StudioChildStep[],
+  stepId: string,
+  fallback: number
+): number {
+  const match = childSteps.find((entry) => entry.stepId === stepId);
+  return match ? Math.max(match.count, fallback) : fallback;
+}
+
 function buildExpansion(
   run: StoredPipelineRun,
   step: StoredPipelineStep,
@@ -226,6 +241,7 @@ function buildExpansion(
   details: readonly PipelineStepProgressDetail[],
   /** Progress rows the trace dropped; their depth is unknown, so they are not items. */
   unrecorded: number,
+  totalRuns: number,
   ctx: SceneContext,
   depth: number
 ): ExpansionScene {
@@ -249,7 +265,7 @@ function buildExpansion(
     if (expanded) ctx.wanted.add(summary.runId);
     const graph =
       load && load !== "missing"
-        ? buildRunScene(load.run, load.children, ctx, depth + 1)
+        ? buildRunScene(load.run, load.children, ctx, depth + 1, load.childSteps)
         : undefined;
     sized.push({
       kind: "run",
@@ -277,7 +293,7 @@ function buildExpansion(
       height: NODE_HEIGHT,
     });
   }
-  const hiddenRuns = ordered.length - drawnRuns;
+  const hiddenRuns = totalRuns - drawnRuns;
   const hiddenRows = details.length - (sized.length - drawnRuns);
   const more = [
     hiddenRuns > 0 && `+${hiddenRuns} more in the run list`,
@@ -331,10 +347,12 @@ function buildRunScene(
   run: StoredPipelineRun,
   children: readonly StoredRunSummary[],
   ctx: SceneContext,
-  depth: number
+  depth: number,
+  childSteps: readonly StudioChildStep[] = []
 ): RunScene {
   ctx.runs.set(run.runId, run);
   ctx.children.set(run.runId, children);
+  ctx.childSteps.set(run.runId, childSteps);
   for (const child of children) ctx.summaries.set(child.runId, child);
   const stepById = new Map(run.steps.map((step) => [step.id, step]));
   const steps: StepScene[] = run.steps.map((step) => {
@@ -356,14 +374,15 @@ function buildRunScene(
     const unrecorded = step.nestedPipeline
       ? 0
       : Math.max(0, (step.progress?.detailCount ?? recorded.length) - recorded.length);
-    const itemCount = childRuns.length + details.length;
+    const totalRuns = childStepTotal(childSteps, step.id, childRuns.length);
+    const itemCount = totalRuns + details.length;
     const expanded =
       itemCount > 0 &&
       depth < MAX_DEPTH &&
       (ctx.toggles.get(key) ??
         autoExpand(ctx, key, step.status === "running" && childRuns.length > 0));
     const expansion = expanded
-      ? buildExpansion(run, step, childRuns, details, unrecorded, ctx, depth)
+      ? buildExpansion(run, step, childRuns, details, unrecorded, totalRuns, ctx, depth)
       : undefined;
     const width = Math.max(SLOT_WIDTH, expansion?.width ?? 0);
     if (expansion) expansion.x = (width - expansion.width) / 2;
@@ -759,15 +778,18 @@ function ConnectionList({
 
 function ChildRunList({
   runs,
+  total,
   onOpenRun,
 }: {
   runs: readonly StoredRunSummary[];
+  total: number;
   onOpenRun(runId: string): void;
 }) {
   if (runs.length === 0) return null;
+  const label = total > runs.length ? `${runs.length} of ${total}` : String(runs.length);
   return (
     <div class="graph-io">
-      <h4>Nested runs ({runs.length})</h4>
+      <h4>Nested runs ({label})</h4>
       <div class="nested-runs">
         {runs.map((child) => (
           <button
@@ -969,6 +991,11 @@ function Inspector({
       const childRuns = (ctx.children.get(run.runId) ?? []).filter(
         (child) => child.origin?.stepId === step.id
       );
+      const childTotal = childStepTotal(
+        ctx.childSteps.get(run.runId) ?? [],
+        step.id,
+        childRuns.length
+      );
       return (
         <div class="graph-inspector">
           <div class="graph-kicker">Step · {run.pipelineId}</div>
@@ -987,7 +1014,7 @@ function Inspector({
             empty="None: no later step depends on this output."
             rows={consumers}
           />
-          <ChildRunList runs={childRuns} onOpenRun={onOpenRun} />
+          <ChildRunList runs={childRuns} total={childTotal} onOpenRun={onOpenRun} />
         </div>
       );
     }
@@ -1041,9 +1068,10 @@ export function RunGraph({ detail, api, onOpenRun }: RunGraphProps) {
     wanted: new Set(),
     runs: new Map(),
     children: new Map(),
+    childSteps: new Map(),
     summaries: new Map(),
   };
-  const scene = buildRunScene(detail.run, detail.children, ctx, 0);
+  const scene = buildRunScene(detail.run, detail.children, ctx, 0, detail.childSteps);
   const wanted = [...ctx.wanted].sort().join("\n");
 
   // Reload expanded runs whenever the selected run's detail changes; it changes with

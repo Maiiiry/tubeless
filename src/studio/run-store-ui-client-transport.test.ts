@@ -351,6 +351,7 @@ describe("mounted transport and access expiry", () => {
     (api: ReturnType<typeof createStudioApi>) => api.loadCommands(),
     (api: ReturnType<typeof createStudioApi>) => api.loadCapabilities(),
     (api: ReturnType<typeof createStudioApi>) => api.loadRunDetail("run/id"),
+    (api: ReturnType<typeof createStudioApi>) => api.loadChildRuns("run/id", 1),
     (api: ReturnType<typeof createStudioApi>) => api.loadDefinition("pipeline/id", "definition:id"),
     (api: ReturnType<typeof createStudioApi>) =>
       api.loadDefinitionRuns("pipeline/id", "definition:id", 50),
@@ -370,6 +371,7 @@ describe("mounted transport and access expiry", () => {
       "/admin/pipelines/api/commands",
       "/admin/pipelines/api/capabilities",
       "/admin/pipelines/api/runs/run%2Fid",
+      "/admin/pipelines/api/runs/run%2Fid/children?page=1",
       "/admin/pipelines/api/definitions?pipelineId=pipeline%2Fid&definitionId=definition%3Aid",
       "/admin/pipelines/api/definitions/runs?pipelineId=pipeline%2Fid&offset=50&definitionId=definition%3Aid",
       "/admin/pipelines/api/commands/fixture%2Fid/runs",

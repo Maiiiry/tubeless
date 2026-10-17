@@ -10,15 +10,18 @@ import {
   studioCommandsSchema,
   studioPlanSchema,
   studioRunDetailSchema,
+  studioChildRunsSchema,
   studioDefinitionSchema,
   studioDefinitionRunsSchema,
   type StudioSnapshot,
   type StudioRunDetail,
+  type StudioChildRuns,
   type StudioDefinitionRuns,
 } from "./run-store-ui-schema.js";
 export type {
   StudioSnapshot,
   StudioRunDetail,
+  StudioChildRuns,
   StudioDefinitionRuns,
 } from "./run-store-ui-schema.js";
 
@@ -52,6 +55,7 @@ export interface StudioApi {
   loadCapabilities(): Promise<StudioCapabilities>;
   loadCommands(): Promise<PipelineRunStudioCommand[]>;
   loadRunDetail(runId: string): Promise<StudioRunDetail | null>;
+  loadChildRuns(runId: string, page: number): Promise<StudioChildRuns | null>;
   loadSnapshot(query?: StudioHistoryQuery): Promise<StudioSnapshot>;
   loadDefinition(pipelineId: string, definitionId?: string): Promise<StoredPipelineDefinition>;
   loadDefinitionRuns(
@@ -177,6 +181,18 @@ export function createStudioApi(fetcher: typeof fetch = fetch, mount = ""): Stud
       const detail = parseStudioPayload(studioRunDetailSchema, payload);
       if (!detail) throw invalidResponse("run detail");
       return detail;
+    },
+    async loadChildRuns(runId, page) {
+      const response = await request(
+        "/api/runs/" + encodeURIComponent(runId) + "/children?page=" + page,
+        { cache: "no-store" }
+      );
+      const payload = await readJson(response);
+      if (response.status === 404) return null;
+      if (!response.ok) throw responseError(payload, "Child runs request failed.", response.status);
+      const parsed = parseStudioPayload(studioChildRunsSchema, payload);
+      if (!parsed) throw invalidResponse("child runs");
+      return parsed;
     },
     async loadCommands() {
       const response = await request("/api/commands", { cache: "no-store" });

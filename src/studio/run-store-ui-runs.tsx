@@ -1,4 +1,4 @@
-import { STUDIO_HISTORY_PAGE_SIZE } from "./run-store-ui-schema.js";
+import { STUDIO_HISTORY_PAGE_SIZE, type StudioRunDetail } from "./run-store-ui-schema.js";
 import type { StoredDefinitionSummary, StoredRunSummary } from "../run-store/run-history.js";
 import { Status, StepRow, duration, shortId } from "./run-store-ui-steps.js";
 import { RunGraph } from "./run-store-ui-graph.js";
@@ -113,6 +113,103 @@ function stepSummary(run: StoredPipelineRun): string {
   );
 }
 
+function visibleChildren(
+  first: readonly StoredRunSummary[],
+  extra: readonly StoredRunSummary[]
+): StoredRunSummary[] {
+  const children = [...first];
+  const seen = new Set(children.map((child) => child.runId));
+  for (const child of extra) {
+    if (seen.has(child.runId)) continue;
+    seen.add(child.runId);
+    children.push(child);
+  }
+  return children;
+}
+
+function NestedRuns({
+  api,
+  detail,
+  onSelect,
+}: {
+  api?: Pick<StudioApi, "loadChildRuns">;
+  detail: StudioRunDetail;
+  onSelect(id: string): void;
+}) {
+  const [extra, setExtra] = useState<readonly StoredRunSummary[]>([]);
+  const [nextPage, setNextPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [exhausted, setExhausted] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const children = visibleChildren(detail.children, extra);
+  if (detail.childCount === 0) return null;
+  const showMore = () => {
+    if (!api || loading || exhausted || children.length >= detail.childCount) return;
+    setLoading(true);
+    setError(undefined);
+    api.loadChildRuns(detail.run.runId, nextPage).then(
+      (page) => {
+        setLoading(false);
+        if (!page) {
+          setError("This run is no longer in history.");
+          setExhausted(true);
+          return;
+        }
+        const seen = new Set(children.map((child) => child.runId));
+        const added = page.children.filter((child) => !seen.has(child.runId));
+        if (added.length === 0) {
+          setExhausted(true);
+          return;
+        }
+        setExtra((current) => [...current, ...added]);
+        setNextPage(page.page + 1);
+      },
+      (cause: unknown) => {
+        setLoading(false);
+        setError(cause instanceof Error ? cause.message : "Could not load more runs.");
+      }
+    );
+  };
+  return (
+    <>
+      <div class="section-title">
+        <span>Nested runs</span>
+        <span>
+          {detail.childCount} direct · {detail.descendantCount} total
+        </span>
+      </div>
+      <div class="nested-runs">
+        {children.map((child) => {
+          const descendantCount = child.descendantCount;
+          return (
+            <button
+              class="nested-run"
+              type="button"
+              key={child.runId}
+              onClick={() => onSelect(child.runId)}
+            >
+              <Status value={child.status} />
+              <strong>{child.pipelineId}</strong>
+              <small>
+                {duration(child.durationMs)} · {child.stepCount} steps
+                {descendantCount ? " · " + descendantCount + " nested" : ""}
+              </small>
+            </button>
+          );
+        })}
+      </div>
+      {error && <p role="alert">{error}</p>}
+      {api && !exhausted && children.length < detail.childCount && (
+        <div class="confirm-actions">
+          <button class="secondary-button" type="button" disabled={loading} onClick={showMore}>
+            {loading ? "Loading…" : "Show more"}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 type StepView = "timeline" | "graph";
 
 interface RunDetailProps {
@@ -178,7 +275,7 @@ function RunDetail({
     );
   }
   const { detail } = selection;
-  const { run, ancestors, children } = detail;
+  const { run, ancestors } = detail;
   return (
     <article class="sheet detail">
       <div class="detail-body">
@@ -266,36 +363,7 @@ function RunDetail({
             <span>{run.eventCount}</span>
           </div>
         </div>
-        {children.length > 0 && (
-          <>
-            <div class="section-title">
-              <span>Nested runs</span>
-              <span>
-                {children.length} direct · {detail.descendantCount} total
-              </span>
-            </div>
-            <div class="nested-runs">
-              {children.map((child) => {
-                const descendantCount = child.descendantCount;
-                return (
-                  <button
-                    class="nested-run"
-                    type="button"
-                    key={child.runId}
-                    onClick={() => onSelect(child.runId)}
-                  >
-                    <Status value={child.status} />
-                    <strong>{child.pipelineId}</strong>
-                    <small>
-                      {duration(child.durationMs)} · {child.stepCount} steps
-                      {descendantCount ? " · " + descendantCount + " nested" : ""}
-                    </small>
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
+        <NestedRuns key={run.runId} api={api} detail={detail} onSelect={onSelect} />
         {run.error && (
           <>
             <div class="section-title">

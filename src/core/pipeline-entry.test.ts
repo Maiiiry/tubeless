@@ -140,6 +140,7 @@ describe("module runtime boundaries", () => {
       "run-store/run-history.js",
       "run-store/run-store-schema.js",
       "studio/run-store-ui-api.js",
+      "studio/run-store-ui-children.js",
       "studio/run-store-ui-http.js",
       "studio/run-store-ui-protocol.js",
       "studio/run-store-ui-state.js",

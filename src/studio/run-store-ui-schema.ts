@@ -34,6 +34,8 @@ import {
 } from "../tracing/wire-schema.js";
 
 export const STUDIO_HISTORY_PAGE_SIZE = 50;
+/** Direct child runs returned for one parent step. Matches the graph's drawn cap. */
+export const STUDIO_CHILD_PAGE_SIZE = 16;
 
 const text = wireString({ allowEmpty: true });
 const id = wireString();
@@ -161,11 +163,22 @@ export const studioSnapshotSchema = wireObject({
   runs: wireArray(storedRunSummarySchema, { maxItems: STUDIO_HISTORY_PAGE_SIZE }),
   selectedRun: wireOptional(storedRunSummarySchema),
 });
+export const studioChildStepSchema = wireObject({
+  stepId: wireOptional(id),
+  count,
+});
 export const studioRunDetailSchema = wireObject({
   run: storedPipelineRunSchema,
   ancestors: wireArray(storedRunSummarySchema),
   children: wireArray(storedRunSummarySchema),
+  childCount: count,
+  childSteps: wireArray(studioChildStepSchema),
   descendantCount: count,
+});
+export const studioChildRunsSchema = wireObject({
+  children: wireArray(storedRunSummarySchema),
+  page: count,
+  childCount: count,
 });
 export const studioDefinitionSchema = wireObject({ definition: storedPipelineDefinitionSchema });
 export const studioDefinitionRunsSchema = wireObject({
@@ -174,7 +187,9 @@ export const studioDefinitionRunsSchema = wireObject({
   runCount: count,
 });
 export type StudioSnapshot = InferWireSchema<typeof studioSnapshotSchema>;
+export type StudioChildStep = InferWireSchema<typeof studioChildStepSchema>;
 export type StudioRunDetail = InferWireSchema<typeof studioRunDetailSchema>;
+export type StudioChildRuns = InferWireSchema<typeof studioChildRunsSchema>;
 export type StudioDefinitionRuns = InferWireSchema<typeof studioDefinitionRunsSchema>;
 
 export function parseStudioPayload<T>(schema: WireSchema<T>, value: unknown): T | undefined {

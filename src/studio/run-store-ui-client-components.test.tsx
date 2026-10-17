@@ -1,4 +1,5 @@
 import { createRunHistoryIndex, summarizeRun } from "../run-store/run-history.js";
+import { pageDirectChildren } from "./run-store-ui-children.js";
 import { studioRunDetail } from "./run-store-ui.test-support.js";
 import { StepArtifacts } from "./run-store-ui-artifacts.js";
 import { renderToString } from "preact-render-to-string";
@@ -8,6 +9,7 @@ import type { StoredPipelineRun } from "../run-store/run-store.js";
 import { StudioAccessNotice } from "./run-store-ui-client.js";
 import { CommandFields } from "./run-store-ui-launch.js";
 import { PipelinesView, PlanView } from "./run-store-ui-pipelines.js";
+import type { StudioApi } from "./run-store-ui-client-transport.js";
 import { isoTime, RunsView } from "./run-store-ui-runs.js";
 import { Status } from "./run-store-ui-steps.js";
 import type { PipelineRunStudioCommand } from "./run-store-ui-protocol.js";
@@ -141,6 +143,69 @@ describe("Studio components", () => {
     expect(markup).toContain('aria-label="Copy run link"');
     expect(markup).not.toContain(">Copy run link</button>");
     expect(markup).toContain("1s ago");
+  });
+
+  it("lists the first page of direct children and offers the rest", () => {
+    const root = run({
+      runId: "root",
+      steps: [
+        {
+          id: "fan",
+          status: "running",
+          dependencies: [],
+          optionalDependencies: [],
+          skipAfterFailureOf: [],
+        },
+      ],
+    });
+    const children = Array.from({ length: 20 }, (_, index) =>
+      run({
+        runId: `child-${index}`,
+        parentRunId: "root",
+        parentStepId: "fan",
+        pipelineId: `child-${index}`,
+        startedAtMs: 2_000 + index,
+      })
+    );
+    const index = createRunHistoryIndex([root, ...children]);
+    const summaries = index.childrenOf(root.runId).map((child) => summarizeRun(child, index));
+    const window = pageDirectChildren(summaries, ["fan"], 0);
+    const markup = renderToString(
+      <RunsView
+        api={
+          {
+            loadChildRuns: async () => ({ children: [], page: 1, childCount: 20 }),
+          } as unknown as StudioApi
+        }
+        canCancel={false}
+        cancelling={false}
+        liveRunIds={[]}
+        nowMs={3_000}
+        onCancel={() => {}}
+        onCopyLink={() => {}}
+        onSelect={() => {}}
+        roots={index.roots.map((entry) => summarizeRun(entry, index))}
+        selection={{
+          status: "ready",
+          runId: root.runId,
+          summary: summarizeRun(root, index),
+          detail: {
+            ...studioRunDetail(root),
+            children: window.children,
+            childCount: window.childCount,
+            childSteps: window.childSteps,
+            descendantCount: 20,
+          },
+        }}
+        latestRunId={root.runId}
+        totalRunCount={21}
+      />
+    );
+    expect(markup.match(/class="nested-run"/g)).toHaveLength(16);
+    expect(markup).toContain("20 direct");
+    expect(markup).toContain("child-0");
+    expect(markup).not.toContain("child-19");
+    expect(markup).toContain("Show more");
   });
 
   it("distinguishes a missing linked run from a run whose details are loading", () => {

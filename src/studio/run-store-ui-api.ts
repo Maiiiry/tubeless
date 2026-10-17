@@ -102,6 +102,19 @@ export function createStudioApiHandler(
           canClearHistory: history !== undefined,
         });
       }
+      const childrenMatch = /^\/api\/runs\/([^/]+)\/children$/.exec(url.pathname);
+      if (request.method === "GET" && childrenMatch) {
+        const runId = decodePathSegment(childrenMatch[1]!);
+        const page = await eventState.childRuns(runId, childPage(url));
+        return page
+          ? jsonResponse(page)
+          : errorResponse(
+              404,
+              "run_not_found",
+              "Run not found.",
+              "Refresh /api/snapshot and choose an available runId."
+            );
+      }
       const runMatch = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
       if (request.method === "GET" && runMatch) {
         const runId = decodePathSegment(runMatch[1]!);
@@ -289,14 +302,17 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 function historyOffset(url: URL): number {
-  const value = url.searchParams.get("offset") ?? "0";
-  const offset = Number(value);
-  if (!/^\d+$/.test(value) || !Number.isSafeInteger(offset))
-    throw new StudioRequestError(
-      "invalid_offset",
-      "Invalid history offset.",
-      400,
-      "Use a nonnegative safe integer."
-    );
-  return offset;
+  return queryInteger(url, "offset", "invalid_offset", "Invalid history offset.");
+}
+
+function childPage(url: URL): number {
+  return queryInteger(url, "page", "invalid_page", "Invalid child page.");
+}
+
+function queryInteger(url: URL, name: string, code: string, message: string): number {
+  const value = url.searchParams.get(name) ?? "0";
+  const parsed = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(parsed))
+    throw new StudioRequestError(code, message, 400, "Use a nonnegative safe integer.");
+  return parsed;
 }

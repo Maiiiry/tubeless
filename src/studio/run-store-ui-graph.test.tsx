@@ -8,6 +8,7 @@ import {
   type StoredPipelineRun,
   type StoredPipelineStep,
 } from "../run-store/run-store.js";
+import { pageDirectChildren } from "./run-store-ui-children.js";
 import { RunGraph } from "./run-store-ui-graph.js";
 
 function run(overrides: Partial<StoredPipelineRun> = {}): StoredPipelineRun {
@@ -44,12 +45,20 @@ function step(
 /** Render the graph for `root` with its direct children attributed by the history index. */
 function graph(root: StoredPipelineRun, children: readonly StoredPipelineRun[] = []) {
   const index = createRunHistoryIndex([root, ...children]);
+  const summaries = index.childrenOf(root.runId).map((child) => summarizeRun(child, index));
+  const window = pageDirectChildren(
+    summaries,
+    root.steps.map((step) => step.id),
+    0
+  );
   const markup = renderToString(
     <RunGraph
       detail={{
         run: root,
         ancestors: [],
-        children: index.childrenOf(root.runId).map((child) => summarizeRun(child, index)),
+        children: window.children,
+        childCount: window.childCount,
+        childSteps: window.childSteps,
         descendantCount: index.descendantCount(root.runId),
       }}
       onOpenRun={() => {}}
@@ -151,6 +160,21 @@ describe("RunGraph", () => {
     // One tool run and 15 of the 19 remaining recorded calls fill the 16 drawn slots.
     expect(count("graph-node run ") + count("graph-node item ")).toBe(16);
     expect(markup).toContain("+4 more in the timeline · 280 progress rows not recorded");
+  });
+
+  it("counts child runs the canvas does not draw", () => {
+    const children = Array.from({ length: 20 }, (_, index) =>
+      run({
+        runId: `item-${index}`,
+        parentRunId: "root",
+        parentStepId: "fan",
+        pipelineId: "child",
+        startedAtMs: 2_000 + index,
+      })
+    );
+    const { markup, count } = graph(run({ steps: [step("fan", "running")] }), children);
+    expect(count("graph-node run ")).toBe(16);
+    expect(markup).toContain("+4 more in the run list");
   });
 
   it("counts only recorded direct items when dropped rows may be nested", () => {

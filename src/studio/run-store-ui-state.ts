@@ -16,10 +16,12 @@ import {
   type StoredDefinitionSummary,
 } from "../run-store/run-history.js";
 import { projectPipelineRun } from "../run-store/run-store.js";
+import { pageDirectChildren } from "./run-store-ui-children.js";
 import {
   STUDIO_HISTORY_PAGE_SIZE,
   type StudioSnapshot,
   type StudioRunDetail,
+  type StudioChildRuns,
   type StudioDefinitionRuns,
 } from "./run-store-ui-schema.js";
 
@@ -151,13 +153,46 @@ export class PipelineRunStudioEventState {
       const events = await this.#listRunEvents(runId);
       if (events.length === 0) return undefined;
       const run = projectPipelineRun(events);
+      const stored = history.source.runs.find((entry) => entry.runId === runId);
+      const window = pageDirectChildren(
+        this.#directChildren(history, runId),
+        (stored ?? run).steps.map((step) => step.id),
+        0
+      );
       return {
         run,
         ancestors: history.index.ancestorsOf(runId).map((run) => history.summaries.get(run.runId)!),
-        children: history.index.childrenOf(runId).map((run) => history.summaries.get(run.runId)!),
+        children: window.children,
+        childCount: window.childCount,
+        childSteps: window.childSteps,
         descendantCount: history.index.descendantCount(runId),
       };
     });
+  }
+
+  childRuns(runId: string, page: number): Promise<StudioChildRuns | undefined> {
+    return this.#serialize(async () => {
+      await this.#appendNewEvents();
+      const history = this.#indexedHistory();
+      const run = history.source.runs.find((entry) => entry.runId === runId);
+      if (!run) return undefined;
+      const window = pageDirectChildren(
+        this.#directChildren(history, runId),
+        run.steps.map((step) => step.id),
+        page
+      );
+      return { children: window.children, page, childCount: window.childCount };
+    });
+  }
+
+  #directChildren(
+    history: {
+      index: RunHistoryIndex<StoredPipelineRun>;
+      summaries: Map<string, StoredRunSummary>;
+    },
+    runId: string
+  ): StoredRunSummary[] {
+    return history.index.childrenOf(runId).map((run) => history.summaries.get(run.runId)!);
   }
 
   definition(

@@ -30,5 +30,5 @@ export function studioSnapshot(
 }
 
 export function studioRunDetail(run: StoredPipelineRun): StudioRunDetail {
-  return { run, ancestors: [], children: [], descendantCount: 0 };
+  return { run, ancestors: [], children: [], childCount: 0, childSteps: [], descendantCount: 0 };
 }

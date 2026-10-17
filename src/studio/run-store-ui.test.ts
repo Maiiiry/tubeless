@@ -825,6 +825,8 @@ describe("local pipeline run studio", () => {
     expect(nested.ancestors).toMatchObject([{ runId: "root-0" }]);
     const root = await fetch(`${server.url}/api/runs/root-0`).then((response) => response.json());
     expect(root.children).toMatchObject([{ runId: "searchable-child" }]);
+    expect(root.childCount).toBe(1);
+    expect(root.childSteps).toEqual([{ count: 1 }]);
     expect(root.descendantCount).toBe(1);
     start("new-root");
     const changed = await fetch(endpoint, {
@@ -848,6 +850,69 @@ describe("local pipeline run studio", () => {
     ).toBe(400);
     expect((await fetch(`${server.url}/api/definitions?pipelineId=missing`)).status).toBe(404);
     expect((await fetch(`${server.url}/api/definitions/runs?pipelineId=missing`)).status).toBe(404);
+  });
+
+  it("pages direct children per step and keeps the full count", async () => {
+    const stored: StoredPipelineEvent[] = [];
+    const start = (
+      runId: string,
+      parentRunId?: string,
+      parentStepId?: string,
+      timestampMs = stored.length + 1
+    ) =>
+      stored.push(
+        storedEvent({
+          id: stored.length + 1,
+          version: 2,
+          name: "pipeline.started",
+          pipelineId: parentRunId ? "child" : "parent",
+          runId,
+          parentRunId,
+          timestampMs,
+          payload: {
+            dryRun: false,
+            planOk: true,
+            stepCount: 0,
+            targetIds: [],
+            ...(parentStepId ? { parentStepId } : {}),
+          },
+        })
+      );
+    start("root");
+    for (let index = 0; index < 20; index += 1)
+      start(`batch-${index}`, "root", "batch", 100 + index);
+    for (let index = 0; index < 2; index += 1) start(`tail-${index}`, "root", "tail", 200 + index);
+    start("plain", "root", undefined, 300);
+    const server = await startPipelineRunStudio({ port: 0, store: memoryStore(stored) });
+    servers.push(server);
+    const detail = await fetch(`${server.url}/api/runs/root`).then((response) => response.json());
+    const ids = (children: { runId: string }[]) => children.map((child) => child.runId);
+    expect(detail.childCount).toBe(23);
+    expect(detail.descendantCount).toBe(23);
+    expect(detail.childSteps).toEqual([
+      { stepId: "batch", count: 20 },
+      { stepId: "tail", count: 2 },
+      { count: 1 },
+    ]);
+    expect(ids(detail.children)).toEqual([
+      ...Array.from({ length: 16 }, (_, index) => `batch-${index}`),
+      "tail-0",
+      "tail-1",
+      "plain",
+    ]);
+    const page = await fetch(`${server.url}/api/runs/root/children?page=1`).then((response) =>
+      response.json()
+    );
+    expect(page).toMatchObject({ page: 1, childCount: 23 });
+    expect(ids(page.children)).toEqual(["batch-16", "batch-17", "batch-18", "batch-19"]);
+    const combined = [...ids(detail.children), ...ids(page.children)];
+    expect(new Set(combined).size).toBe(combined.length);
+    expect(
+      await fetch(`${server.url}/api/runs/root/children?page=2`).then((response) => response.json())
+    ).toMatchObject({ children: [], page: 2, childCount: 23 });
+    expect((await fetch(`${server.url}/api/runs/root/children?page=-1`)).status).toBe(400);
+    expect((await fetch(`${server.url}/api/runs/root/children?page=1e2`)).status).toBe(400);
+    expect((await fetch(`${server.url}/api/runs/missing/children`)).status).toBe(404);
   });
 
   it("includes a first store event whose id is zero in snapshots", async () => {

@@ -47,6 +47,7 @@ function api(overrides: Partial<StudioApi>): StudioApi {
       throw new Error("unused");
     }),
     loadRunDetail: vi.fn(async () => null),
+    loadChildRuns: vi.fn(async () => ({ children: [], page: 0, childCount: 0 })),
     loadSnapshot: vi.fn(async ({ selectedRunId } = {}) =>
       snapshot(selectedRunId ? [run(selectedRunId)] : [], selectedRunId)
     ),

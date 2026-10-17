@@ -55,6 +55,7 @@
     "api:diff": "node scripts/summarize-api-report-diff.mjs",
     "api:generate": "bun run build && node scripts/generate-api-reference.mjs",
     "studio:check": "bun scripts/generate-studio-client.mjs --check",
+    "studio:watch": "bun scripts/watch-studio-client.mjs",
     "check": "bun run build && bun dist/workbench/workbench-bin.js run --trace logs/check.ndjson scripts/check-pipeline.ts -- --continue-on-error --max-concurrency 4",
     "docs:check": "node scripts/validate-learning-surface.mjs",
     "format": "oxfmt --write .",

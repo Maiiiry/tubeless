@@ -31,12 +31,11 @@ remaining checks as a concurrent Tubeless pipeline and record `logs/check.ndjson
 and `make typecheck` run one for you. With `dist/` current, `make test-run` runs
 only the vitest suite and `make typecheck-run` only the type checks.
 
-`make watch` builds once, then recompiles `src/` on change while vitest re-runs
-the suite; stop it with Ctrl-C. The generated Studio client bundle is the one
-artifact `tsc` does not produce, so `make watch` leaves it at the last
-`make build`: rerun `make build` after editing
-`src/studio/run-store-ui-client*`, and `make studio-check` when the served client
-looks stale.
+`make watch` builds once, then recompiles `src/` on change, regenerates the
+Studio client when a bundled source changes, and re-runs the vitest suite; stop
+it with Ctrl-C. `tsc` still does not emit the browser bundle. The watch loop
+runs `scripts/generate-studio-client.mjs`. `make studio-check` fails when the
+served bundle does not match the sources.
 
 Before changing usage or public behavior, read
 [`docs/agent-guide.md`](./docs/agent-guide.md) and the repository-local

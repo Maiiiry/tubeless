@@ -55,7 +55,7 @@ help:
 	@echo "  make knip          Report unused exports, files, and dependencies"
 	@echo "  make test          Build, then run the vitest suite"
 	@echo "  make test-run      Run the vitest suite against the current build"
-	@echo "  make watch         Rebuild src on change and re-run tests until interrupted"
+	@echo "  make watch         Rebuild src and the Studio client on change, and re-run tests"
 	@echo "  make docs-check    Validate the learning-surface docs"
 	@echo "  make studio-check  Verify the generated Studio client bundle"
 	@echo "  make api-check     Verify generated public API docs"
@@ -124,9 +124,10 @@ test-run:
 	bun run test:run
 
 # `dist/` is what tests and type checks resolve `tubeless` from, so rebuild it as
-# sources change. The generated Studio client bundle still needs a full `make build`.
+# sources change. The Studio client bundle is not a tsc output; regenerate it
+# when a bundled source changes.
 watch: build
-	bun run build:watch & bun run test:watch; wait
+	bun run studio:watch & bun run build:watch & bun run test:watch; wait
 
 docs-check:
 	bun run docs:check

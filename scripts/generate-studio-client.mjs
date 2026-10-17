@@ -32,6 +32,35 @@ export function compiledClientSource(js) {
   return `${withoutMaps.replace(/\s+$/u, "")}\n`;
 }
 
+export async function generateStudioClient({ check = false } = {}) {
+  const source = await bundledClientSource();
+  const outputs = [
+    [browserBundlePath, source],
+    [cloudflareClientPath, cloudflareClientModule(source)],
+  ];
+
+  if (check) {
+    for (const [path, expected] of outputs) {
+      const actual = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+      if (actual !== expected) {
+        throw new Error(`Generated ${relative(packageRoot, path)} is stale. Run: bun run build`);
+      }
+    }
+    return;
+  }
+
+  for (const [path, contents] of outputs) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, contents);
+  }
+  writeFileSync(
+    cloudflareClientTypesPath,
+    "export declare const PIPELINE_RUN_STUDIO_CLIENT: string;\n"
+  );
+  rmSync(`${browserBundlePath}.map`, { force: true });
+  process.stdout.write(`Generated ${relative(packageRoot, browserBundlePath)}\n`);
+}
+
 async function bundledClientSource() {
   if (typeof Bun === "undefined") {
     throw new Error("Generate the Studio client with Bun: bun scripts/generate-studio-client.mjs");
@@ -53,30 +82,5 @@ const isMain =
   process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isMain) {
-  const source = await bundledClientSource();
-
-  const outputs = [
-    [browserBundlePath, source],
-    [cloudflareClientPath, cloudflareClientModule(source)],
-  ];
-
-  if (check) {
-    for (const [path, expected] of outputs) {
-      const actual = existsSync(path) ? readFileSync(path, "utf8") : undefined;
-      if (actual !== expected) {
-        throw new Error(`Generated ${relative(packageRoot, path)} is stale. Run: bun run build`);
-      }
-    }
-  } else {
-    for (const [path, contents] of outputs) {
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, contents);
-    }
-    writeFileSync(
-      cloudflareClientTypesPath,
-      "export declare const PIPELINE_RUN_STUDIO_CLIENT: string;\n"
-    );
-    rmSync(`${browserBundlePath}.map`, { force: true });
-    process.stdout.write(`Generated ${relative(packageRoot, browserBundlePath)}\n`);
-  }
+  await generateStudioClient({ check });
 }

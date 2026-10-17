@@ -1,8 +1,8 @@
 import {
   createPipelineRunProjector,
   type PipelineRunEventReader,
+  type PipelineRunProjector,
   type PipelineRunStoreSnapshot,
-  type StoredPipelineEvent,
   type StoredPipelineRun,
   type StoredPipelineDefinition,
 } from "../run-store/run-store.js";
@@ -15,7 +15,6 @@ import {
   type StoredRunSummary,
   type StoredDefinitionSummary,
 } from "../run-store/run-history.js";
-import { projectPipelineRun } from "../run-store/run-store.js";
 import { pageDirectChildren } from "./run-store-ui-children.js";
 import {
   STUDIO_HISTORY_PAGE_SIZE,
@@ -30,6 +29,12 @@ export interface PipelineRunStudioHistoryMaintenance {
   isBusy?(): boolean | Promise<boolean>;
 }
 
+/**
+ * Detail projectors retain log and artifact bodies. This keeps the selected run
+ * and the expanded children touched most recently; an older open is rebuilt on demand.
+ */
+export const STUDIO_OPEN_RUN_LIMIT = 32;
+
 export class PipelineRunStudioHistoryBusyError extends Error {
   constructor() {
     super("Wait for active runs to finish before clearing history.");
@@ -42,6 +47,8 @@ export class PipelineRunStudioEventState {
   #lastEventId: number | undefined;
   #operation: Promise<void> = Promise.resolve();
   #projector = createPipelineRunProjector({ retainLogs: false, retainArtifacts: false });
+  /** Recent opens, oldest first. Each entry keeps log and artifact bodies for one run. */
+  #runs = new Map<string, { lastEventId: number | undefined; projector: PipelineRunProjector }>();
   #revision = 0;
   #history:
     | {
@@ -77,12 +84,39 @@ export class PipelineRunStudioEventState {
     }
   }
 
-  async #listRunEvents(runId: string): Promise<readonly StoredPipelineEvent[]> {
-    const events: StoredPipelineEvent[] = [];
-    for await (const page of readPipelineEventPages(this.store, { limit: 100_000, runId })) {
-      events.push(...page);
+  /** Fold one run from its last event id. The first open reads the run; later polls read the tail. */
+  async #openRun(runId: string): Promise<StoredPipelineRun | undefined> {
+    const cached = this.#runs.get(runId) ?? {
+      lastEventId: undefined,
+      projector: createPipelineRunProjector(),
+    };
+    let seen = cached.lastEventId !== undefined;
+    for await (const page of readPipelineEventPages(this.store, {
+      afterId: cached.lastEventId,
+      limit: 100_000,
+      runId,
+    })) {
+      cached.projector.append(page);
+      cached.lastEventId = page.at(-1)!.id;
+      seen = true;
     }
-    return events;
+    if (!seen) return undefined;
+    this.#retainRun(runId, cached);
+    return cached.projector.snapshot().runs.find((entry) => entry.runId === runId);
+  }
+
+  /** Remember a run and drop the oldest projector once retention is full. */
+  #retainRun(
+    runId: string,
+    cached: { lastEventId: number | undefined; projector: PipelineRunProjector }
+  ): void {
+    this.#runs.delete(runId);
+    this.#runs.set(runId, cached);
+    while (this.#runs.size > STUDIO_OPEN_RUN_LIMIT) {
+      const oldest = this.#runs.keys().next().value;
+      if (oldest === undefined) return;
+      this.#runs.delete(oldest);
+    }
   }
 
   #indexedHistory() {
@@ -150,9 +184,8 @@ export class PipelineRunStudioEventState {
     return this.#serialize(async () => {
       await this.#appendNewEvents();
       const history = this.#indexedHistory();
-      const events = await this.#listRunEvents(runId);
-      if (events.length === 0) return undefined;
-      const run = projectPipelineRun(events);
+      const run = await this.#openRun(runId);
+      if (!run) return undefined;
       const stored = history.source.runs.find((entry) => entry.runId === runId);
       const window = pageDirectChildren(
         this.#directChildren(history, runId),
@@ -245,6 +278,7 @@ export class PipelineRunStudioEventState {
       await history.clear();
       this.#lastEventId = undefined;
       this.#projector.clear();
+      this.#runs.clear();
       this.#history = undefined;
       this.#revision += 1;
       return {

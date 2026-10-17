@@ -90,7 +90,7 @@
     "cf": "1.0.0-beta.18",
     "inngest": "4.24.0",
     "knip": "6.41.0",
-    "miniflare": "5.20261006.0-alpha",
+    "miniflare": "5.20261012.1-beta",
     "oxfmt": "0.73.0",
     "oxlint": "1.88.0",
     "preact": "11.0.1",

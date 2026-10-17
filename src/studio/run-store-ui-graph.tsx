@@ -1045,6 +1045,34 @@ function usePulse(): (key: string, status: string) => boolean {
   };
 }
 
+/** Fingerprint of one expanded child. Detail reloads only when this value changes. */
+export function expandedRunWatchKey(
+  summary: Pick<StoredRunSummary, "runId" | "eventCount" | "subtreeEventCount" | "status">
+): string {
+  return JSON.stringify([
+    summary.runId,
+    summary.eventCount,
+    summary.subtreeEventCount,
+    summary.status,
+  ]);
+}
+
+/**
+ * Expanded children whose last successful load does not match `keys`.
+ * A missing entry is loaded again, so a failed request is retried without a fingerprint change.
+ */
+export function expandedRunsToLoad(
+  keys: readonly string[],
+  loaded: ReadonlyMap<string, string>
+): { key: string; runId: string }[] {
+  const pending: { key: string; runId: string }[] = [];
+  for (const key of keys) {
+    const runId: unknown = JSON.parse(key)[0];
+    if (typeof runId === "string" && loaded.get(runId) !== key) pending.push({ key, runId });
+  }
+  return pending;
+}
+
 export interface RunGraphProps {
   detail: StudioRunDetail;
   /** Loads nested run steps for in-place expansion; nested runs stay collapsed without it. */
@@ -1058,6 +1086,8 @@ export function RunGraph({ detail, api, onOpenRun }: RunGraphProps) {
   const opened = useRef(new Set<string>());
   const [loads, setLoads] = useState<ReadonlyMap<string, RunLoad>>(new Map());
   const [selection, setSelection] = useState<GraphSelection | null>(null);
+  const loadedKeys = useRef(new Map<string, string>());
+  const [retry, setRetry] = useState(0);
   const pulse = usePulse();
   const ctx: SceneContext = {
     loads,
@@ -1072,21 +1102,26 @@ export function RunGraph({ detail, api, onOpenRun }: RunGraphProps) {
     summaries: new Map(),
   };
   const scene = buildRunScene(detail.run, detail.children, ctx, 0, detail.childSteps);
-  const wanted = [...ctx.wanted].sort().join("\n");
+  const watch = [...ctx.wanted]
+    .sort()
+    .map((runId) => expandedRunWatchKey(ctx.summaries.get(runId)!))
+    .join("\n");
 
-  // Reload expanded runs whenever the selected run's detail changes; it changes with
-  // every event recorded anywhere in its subtree. A failed request is not a missing
-  // recording: keep the last loaded detail and retry, since a finished run's detail
-  // will not change again to trigger a reload.
-  const [retry, setRetry] = useState(0);
+  // Reload an expanded child when its own event count, subtree size, or status changes.
+  // A failed request is not recorded, so the retry loads that child again even when a
+  // finished run will not change its fingerprint. The last loaded detail stays in place.
   useEffect(() => {
-    if (!api || !wanted) return;
+    if (!api || !watch) return;
+    const pending = expandedRunsToLoad(watch.split("\n"), loadedKeys.current);
+    if (pending.length === 0) return;
     let current = true;
     let retryQueued = false;
-    for (const runId of wanted.split("\n")) {
+    for (const { key, runId } of pending) {
       api.loadRunDetail(runId).then(
         (loaded) => {
-          if (current) setLoads((previous) => new Map(previous).set(runId, loaded ?? "missing"));
+          if (!current) return;
+          loadedKeys.current.set(runId, key);
+          setLoads((previous) => new Map(previous).set(runId, loaded ?? "missing"));
         },
         () => {
           if (current && !retryQueued) {
@@ -1101,7 +1136,7 @@ export function RunGraph({ detail, api, onOpenRun }: RunGraphProps) {
     return () => {
       current = false;
     };
-  }, [api, detail, wanted, retry]);
+  }, [api, watch, retry]);
 
   const ui: GraphUi = {
     selection,

@@ -9,7 +9,7 @@ import {
   type StoredPipelineStep,
 } from "../run-store/run-store.js";
 import { pageDirectChildren } from "./run-store-ui-children.js";
-import { RunGraph } from "./run-store-ui-graph.js";
+import { expandedRunWatchKey, expandedRunsToLoad, RunGraph } from "./run-store-ui-graph.js";
 
 function run(overrides: Partial<StoredPipelineRun> = {}): StoredPipelineRun {
   return {
@@ -337,5 +337,43 @@ describe("RunGraph", () => {
     expect(markup).toContain('aria-label="summarize (agent/tool/summarize): running"');
     expect(count("graph-node item ")).toBe(2);
     expect(count("graph-node run ")).toBe(1);
+  });
+});
+
+describe("expanded run detail refresh", () => {
+  const child = (
+    eventCount: number,
+    subtreeEventCount = eventCount,
+    status: StoredPipelineRun["status"] = "running"
+  ) => expandedRunWatchKey({ eventCount, runId: "child", status, subtreeEventCount });
+
+  it("loads an expanded child until that child's fingerprint is recorded", () => {
+    const key = child(2, 4);
+    const loaded = new Map<string, string>();
+    expect(expandedRunsToLoad([key], loaded)).toEqual([{ key, runId: "child" }]);
+    loaded.set("child", key);
+    expect(expandedRunsToLoad([key], loaded)).toEqual([]);
+    expect(expandedRunsToLoad([child(3, 4)], loaded)).toEqual([
+      { key: child(3, 4), runId: "child" },
+    ]);
+    expect(expandedRunsToLoad([child(2, 5)], loaded)).toEqual([
+      { key: child(2, 5), runId: "child" },
+    ]);
+    expect(expandedRunsToLoad([child(2, 4, "completed")], loaded)).toEqual([
+      { key: child(2, 4, "completed"), runId: "child" },
+    ]);
+  });
+
+  it("retries a failed child without reloading a sibling that already loaded", () => {
+    const sibling = expandedRunWatchKey({
+      eventCount: 1,
+      runId: "sibling",
+      status: "completed",
+      subtreeEventCount: 1,
+    });
+    const key = child(2);
+    const loaded = new Map<string, string>([["sibling", sibling]]);
+    expect(expandedRunsToLoad([sibling, key], loaded)).toEqual([{ key, runId: "child" }]);
+    expect(expandedRunsToLoad([], loaded)).toEqual([]);
   });
 });

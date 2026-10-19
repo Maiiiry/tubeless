@@ -1,6 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { href } from "../lib/paths";
+import { SOCIAL_IMAGE_ALT, SOCIAL_IMAGE_HREF, SOCIAL_IMAGE_URL } from "../lib/social-image";
 
 const logos = [
   {
@@ -30,12 +31,12 @@ const logos = [
 <Base
   title="Brand"
   markdown="brand.md"
-  description="Download the Tubeless wordmark and app icon as SVG files."
+  description="Download the Tubeless wordmark, app icon, and social share image."
 >
   <main class="wrap">
     <header class="page-lead brand-lead">
       <h1 class="page-title">Tubeless brand</h1>
-      <p>Logo files for referring to Tubeless in articles, integrations, and community projects.</p>
+      <p>Brand assets for referring to Tubeless in articles, integrations, and community projects.</p>
     </header>
 
     <section class="section brand-assets" aria-labelledby="logos-heading">
@@ -57,6 +58,24 @@ const logos = [
         ))}
       </div>
     </section>
+
+    <section class="section brand-assets" aria-labelledby="social-image-heading">
+      <h2 id="social-image-heading">Social share image</h2>
+      <p>Managed Agentic Workflows. Use this card when sharing Tubeless on social media.</p>
+      <article class="brand-card social-card">
+        <img class="social-preview" src={SOCIAL_IMAGE_HREF} alt={SOCIAL_IMAGE_ALT} width="1200" height="630" loading="lazy" />
+        <div class="brand-card-copy">
+          <p>1200 × 630 · JPEG</p>
+          <div class="social-actions">
+            <a class="btn ghost" href={SOCIAL_IMAGE_HREF} download="tubeless-social.jpg">Download JPEG</a>
+            <button class="btn ghost social-copy" type="button" data-copy={SOCIAL_IMAGE_URL}>
+              <span class="copy-idle">Copy image URL</span>
+              <span class="copy-done">Copied</span>
+            </button>
+          </div>
+        </div>
+      </article>
+    </section>
   </main>
 </Base>
 
@@ -75,6 +94,13 @@ const logos = [
   .brand-card-copy h3 { margin: 0 0 0.25rem; font-size: 1rem; }
   .brand-card-copy p { margin: 0; color: var(--muted); font-size: 0.9rem; }
   .brand-card-copy .btn { flex: none; }
+  .social-card { margin-top: 1.8rem; }
+  .social-preview { display: block; width: 100%; height: auto; border-bottom: 1px solid var(--line); }
+  .social-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+  .social-copy { display: inline-grid; place-items: center; }
+  .social-copy span { grid-area: 1 / 1; }
+  .social-copy .copy-done, .social-copy[data-copied] .copy-idle { visibility: hidden; }
+  .social-copy[data-copied] .copy-done { visibility: visible; }
 
   @media (max-width: 700px) {
     .brand-grid { grid-template-columns: 1fr; }

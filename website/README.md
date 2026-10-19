@@ -50,10 +50,10 @@ The build fails when only one variable is set.
 | Agent overview | `src/pages/agent-harness.astro` and its Markdown alternate explain execution, composition, and setup. Recorded test tasks live on the separate examples page. |
 | Agent examples and recordings | `src/pages/agent-examples.astro` and its Markdown alternate; `AgentReplay.astro` displays `public/agent-evaluation.json`. Update the recording only from a passing opt-in evaluation, retaining model/effort/date and replacing disposable workspace prefixes with `<workspace>`. Preserve failed attempts in the candidate's acceptance evidence. `public/agent-delegation.json` is separate, scripted CLI history with local stack paths removed. No live calls run during site builds or replay. |
 | Developer resource hub | `src/pages/developers.astro`, `src/pages/developers.md.ts` |
-| Brand page and downloadable logos | `src/pages/brand.astro`, `src/pages/brand.md.ts`, and `public/wordmark*.svg`; the square mark remains `public/logo.svg` |
+| Brand page and downloadable assets | `src/pages/brand.astro`, `src/pages/brand.md.ts`, and `public/wordmark*.svg`; the square mark remains `public/logo.svg`. The brand page also previews and links to the social share JPEG |
 | Homepage Markdown overview | `src/pages/index.md.ts`; advertised in the homepage head and `llms.txt` |
 | Visual system | `src/styles/global.css` |
-| Logo and social card | `../docs/assets/logo.svg` and `../docs/assets/social.svg`; `bun scripts/rasterize-og.mjs` writes `public/og.jpg` at 1200×630 JPEG. Social metadata appends the package version to refresh crawler caches after releases. `bun scripts/rasterize-icon.mjs` writes `public/apple-touch-icon.png` at 180×180. `public/og.png` is a historical URL only |
+| Logo and social card | `../docs/assets/logo.svg` and `../docs/assets/social.svg`; `bun scripts/rasterize-og.mjs` writes `public/og.jpg` at 1200×630 JPEG. `src/lib/social-image.ts` shares the image URL and alt text between site metadata and the brand page, with a content hash to refresh crawler caches whenever the artwork changes. `bun scripts/rasterize-icon.mjs` writes `public/apple-touch-icon.png` at 180×180. `public/og.png` is a historical URL only |
 
 Refresh captured CLI tapes by running the workbench against `examples/` and
 replacing the strings in `src/data/tapes.ts`.

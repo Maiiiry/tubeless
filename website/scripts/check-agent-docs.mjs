@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,8 +9,9 @@ const read = (path) => readFileSync(join(root, path), "utf8");
 const index = read("llms.txt");
 const bundle = read("llms-full.txt");
 const documentSchema = JSON.parse(read("schemas/pipeline-document-v1.schema.json"));
-const packageVersion = JSON.parse(readFileSync(join(root, "../../package.json"), "utf8")).version;
-const socialImage = `https://tubeless.io/og.jpg?v=${packageVersion}`;
+const socialImageBytes = readFileSync(join(root, "og.jpg"));
+const socialImageRevision = createHash("sha256").update(socialImageBytes).digest("hex").slice(0, 12);
+const socialImage = `https://tubeless.io/og.jpg?v=${socialImageRevision}`;
 assert.equal(documentSchema.$id, "https://tubeless.io/schemas/pipeline-document-v1.schema.json");
 assert.equal(read("pipeline-document.schema.json"), read("schemas/pipeline-document-v1.schema.json"));
 assert.ok(index.includes(documentSchema.$id), "Agents must be able to discover the document schema");
@@ -62,6 +64,7 @@ assert.match(homepage, /<title>Tubeless — Typed pipelines for Node\.js<\/title
 assert.match(homepage, /name="application-name" content="Tubeless"/);
 assert.match(homepage, /property="og:site_name" content="Tubeless"/);
 assert.ok(existsSync(join(root, "og.jpg")), "Social card JPEG must be in the built artifact");
+assert.deepEqual(socialImageBytes, readFileSync(join(root, "../public/og.jpg")), "Social card must match the approved artwork");
 assert.ok(existsSync(join(root, "apple-touch-icon.png")), "Apple touch icon PNG must be in the built artifact");
 assert.ok(homepage.includes(`property="og:image" content="${socialImage}"`));
 assert.match(homepage, /property="og:image:type" content="image\/jpeg"/);
@@ -115,6 +118,10 @@ assert.match(brand, /href="\/wordmark-inverse\.svg"/);
 assert.match(brand, /href="\/logo\.svg"/);
 assert.match(brand, /type="text\/markdown" href="\/brand\.md"/);
 assert.match(read("brand.md"), /^# Tubeless brand\n/);
+assert.ok(brand.includes(`src="/og.jpg?v=${socialImageRevision}"`), "Brand page must preview the current social card");
+assert.ok(brand.includes(`href="/og.jpg?v=${socialImageRevision}" download="tubeless-social.jpg"`), "Brand page must offer the current JPEG download");
+assert.ok(brand.includes(`data-copy="${socialImage}"`), "Brand page must copy the social image URL used by metadata");
+assert.ok(read("brand.md").includes(socialImage), "Brand Markdown must link to the current social card");
 
 const sitemap = read("sitemap.xml");
 assert.match(sitemap, /^<\?xml version="1.0" encoding="UTF-8"\?>\n<urlset xmlns="http:\/\/www.sitemaps.org\/schemas\/sitemap\/0.9">/);
@@ -155,6 +162,9 @@ for (const path of humanPages) {
   assert.match(html, /<link rel="sitemap" type="application\/xml" href="\/sitemap.xml"/);
   assert.match(html, /name="twitter:card" content="summary_large_image"/);
   assert.ok(html.includes(`name="twitter:image" content="${socialImage}"`));
+  assert.ok(html.includes(`property="og:image" content="${socialImage}"`));
+  assert.match(html, /property="og:image:alt" content="Tubeless — Managed Agentic Workflows\./);
+  assert.match(html, /name="twitter:image:alt" content="Tubeless — Managed Agentic Workflows\./);
   assert.match(html, /rel="apple-touch-icon" href="\/apple-touch-icon.png" sizes="180x180"/);
   const markdown = path === "start" ? "/docs/getting-started.md" : path ? `/${path}.md` : "/index.md";
   assert.ok(html.includes(`<link rel="alternate" type="text/markdown" href="${markdown}"`), `${path || "homepage"} must advertise Markdown`);

@@ -1,196 +1,74 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" fill="none" role="img" aria-label="Tubeless: a typed pipeline graph from load through validate and normalize to publish and deploy">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none" role="img" aria-label="Tubeless — Managed Agentic Workflows">
   <defs>
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&amp;family=IBM+Plex+Mono:wght@500&amp;family=IBM+Plex+Sans:wght@400;500&amp;display=swap");
-      .display { font-family: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif; font-weight: 800; }
-      .sans { font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; }
-      .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-weight: 500; }
-      .green { --object-light: #c0dbc7; --object-mid: #87b39e; --object-dark: #527d6c; }
-      .blue { --object-light: #c1deec; --object-mid: #81afc8; --object-dark: #507d98; }
-    </style>
-    <pattern id="floor" width="80" height="40" patternUnits="userSpaceOnUse">
-      <path d="M40 0 80 20 40 40 0 20Z" fill="none" stroke="#b5c3b3" stroke-width="0.7" />
-    </pattern>
-    <radialGradient id="floor-fade">
-      <stop stop-color="white" />
-      <stop offset="1" stop-color="black" />
+    <style>@import url("https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&amp;family=IBM+Plex+Sans:wght@500&amp;display=swap");</style>
+    <radialGradient id="light">
+      <stop stop-color="#e4e9d7" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#f7f5ed" stop-opacity="0"/>
     </radialGradient>
-    <mask id="floor-mask">
-      <ellipse cx="640" cy="360" rx="620" ry="250" fill="url(#floor-fade)" />
-    </mask>
-    <radialGradient id="gold-mist" cx="92%" cy="8%" r="55%">
-      <stop stop-color="rgb(213 183 111 / 0.22)" />
-      <stop offset="1" stop-color="rgb(213 183 111 / 0)" />
-    </radialGradient>
-    <g id="cargo">
-      <ellipse cy="8" rx="10" ry="4" fill="#766a4d" opacity="0.2" />
-      <path d="m0-10 9 5-9 5-9-5z" fill="#ffe4a0" stroke="#b18c42" stroke-width="0.8" />
-      <path d="m-9-5 9 5v10l-9-5z" fill="#dfb55b" />
-      <path d="m0 0 9-5V5l-9 5z" fill="#b38738" />
-    </g>
-    <g id="database">
-      <ellipse cx="5" cy="23" rx="51" ry="17" fill="#33413b" opacity="0.12" />
-      <path d="M-37-51v61c0 25 74 25 74 0v-61" fill="var(--object-mid)" stroke="var(--object-dark)" stroke-width="1.5" />
-      <path d="M0-32v60c21 0 37-8 37-18v-61" fill="var(--object-dark)" opacity="0.3" />
-      <path d="M-37-30c0 25 74 25 74 0M-37-9c0 25 74 25 74 0" fill="none" stroke="var(--object-light)" stroke-width="3" />
-      <ellipse cx="0" cy="-51" rx="37" ry="17" fill="var(--object-light)" stroke="var(--object-dark)" stroke-width="1.5" />
-      <ellipse cx="0" cy="-51" rx="25" ry="10" fill="none" stroke="white" opacity="0.6" />
-      <path d="M-26-24v8m0 13v8" stroke="white" opacity="0.6" stroke-width="4" />
-      <circle cx="23" cy="8" r="3" fill="#fef9cf" />
-    </g>
-    <g id="gate">
-      <ellipse cx="5" cy="23" rx="51" ry="17" fill="#33413b" opacity="0.12" />
-      <path d="m0-76 38 15v36C38 0 9 19 0 25-9 19-38 0-38-25v-36z" fill="#a88c51" transform="translate(7 5)" />
-      <path d="m0-76 38 15v36C38 0 9 19 0 25-9 19-38 0-38-25v-36z" fill="#f8e8b2" stroke="#b29758" stroke-width="1.5" />
-      <path d="m0-66 29 12v29c0 18-21 35-29 40-8-5-29-22-29-40v-29z" fill="#fffae8" />
-      <path d="m-18-27 13 13 25-29" fill="none" stroke="#54886b" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
-      <path d="m-29-54 29-12" fill="none" stroke="white" stroke-width="3" />
-    </g>
-    <g id="funnel">
-      <ellipse cx="5" cy="23" rx="51" ry="17" fill="#33413b" opacity="0.12" />
-      <path d="M-49-49 -13-2v29l24 12V-2l38-47" fill="#79a49c" stroke="#527b75" stroke-width="1.5" />
-      <path d="M0-29v62l11 6V-2l38-47" fill="#548079" />
-      <ellipse cy="-49" rx="49" ry="21" fill="#c4dfce" stroke="#527b75" stroke-width="1.5" />
-      <ellipse cy="-49" rx="36" ry="13" fill="#426d64" />
-      <path d="m-16-75 9-5 9 5-9 5z" fill="#e2b757" />
-      <path d="m8-88 9-5 9 5-9 5z" fill="#83b9cc" />
-      <path d="m4-61 9-5 9 5-9 5z" fill="#e5a3a7" />
-    </g>
-    <g id="parcel">
-      <ellipse cx="5" cy="23" rx="51" ry="17" fill="#33413b" opacity="0.12" />
-      <path d="m0-57 41 22L0-12l-41-23z" fill="var(--object-light)" stroke="var(--object-dark)" />
-      <path d="m-41-35 41 23v45l-41-23z" fill="var(--object-mid)" stroke="var(--object-dark)" />
-      <path d="m0-12 41-23v45L0 33z" fill="var(--object-dark)" />
-      <path d="m-12-50 41 22v17l-12 7v-17l-40-22" fill="#fff4cf" opacity="0.8" />
-      <path d="m-31-8 20 11v12l-20-11z" fill="#fff8e4" />
-      <path d="m-26-3 10 6m-10-1 7 4" stroke="#957442" stroke-width="1.5" />
-    </g>
-    <g id="server">
-      <ellipse cx="5" cy="23" rx="51" ry="17" fill="#33413b" opacity="0.12" />
-      <path d="m-35-67 24-13 53 20-24 14z" fill="#71868c" stroke="#354c56" />
-      <path d="m18-46 24-14v76L18 31z" fill="#283f48" stroke="#233942" />
-      <path d="m-35-67 53 21v77l-53-21z" fill="#455e68" stroke="#233942" />
-      <g>
-        <path d="m-29-57 40 16v15l-40-16z" fill="#1f343c" />
-        <path d="m-13-46 17 7" stroke="#9eb4b8" stroke-width="2" />
-        <circle cx="-23" cy="-47" r="2.7" fill="#a9ebba" />
-      </g>
-      <g transform="translate(0 22)">
-        <path d="m-29-57 40 16v15l-40-16z" fill="#1f343c" />
-        <path d="m-13-46 17 7" stroke="#9eb4b8" stroke-width="2" />
-        <circle cx="-23" cy="-47" r="2.7" fill="#a9ebba" />
-      </g>
-      <g transform="translate(0 44)">
-        <path d="m-29-57 40 16v15l-40-16z" fill="#1f343c" />
-        <path d="m-13-46 17 7" stroke="#9eb4b8" stroke-width="2" />
-        <circle cx="-23" cy="-47" r="2.7" fill="#fef9cf" />
-      </g>
-      <path d="m25-36 9-5m-9 14 9-5m-9 14 9-5" stroke="#6d8a92" stroke-width="2" />
-    </g>
-    <g id="wheel-mark">
-      <g stroke="#121212" stroke-width="1.15">
-        <path d="M16.2 10.19 19.2 4.99" />
-        <path d="M18.4 14h6" />
-        <path d="M16.2 17.81 19.2 23.01" />
-        <path d="M11.8 17.81 8.8 23.01" />
-        <path d="M11.8 10.19 8.8 4.99" />
-        <path d="M9.6 14h-6" />
-      </g>
-      <circle cx="14" cy="14" r="12.15" stroke="#121212" stroke-width="2.35" />
-      <circle cx="14" cy="14" r="3.15" stroke="#121212" stroke-width="1.55" />
-      <path d="M14 1.85v3.55" stroke="#c4a046" stroke-width="2.15" />
-      <circle cx="14" cy="2.05" r="1.2" fill="#c4a046" />
-    </g>
   </defs>
-
-  <rect width="1200" height="630" fill="#f7f5ef" />
-  <rect width="1200" height="630" fill="url(#gold-mist)" />
-  <ellipse cx="640" cy="390" rx="520" ry="190" fill="#dce5d6" opacity="0.28" />
-  <rect width="1200" height="630" fill="url(#floor)" mask="url(#floor-mask)" opacity="0.7" />
-
-  <rect width="240" height="12" fill="#0085ca" />
-  <rect x="240" width="240" height="12" fill="#e30613" />
-  <rect x="480" width="240" height="12" fill="#121212" />
-  <rect x="720" width="240" height="12" fill="#ffd100" />
-  <rect x="960" width="240" height="12" fill="#00a651" />
-
-  <g transform="translate(-70 80)" opacity="0.11" aria-hidden="true">
-    <g fill="none" stroke="#121212" stroke-width="1.2">
-      <circle cx="200" cy="200" r="186" />
-      <circle cx="200" cy="200" r="168" />
-      <circle cx="200" cy="200" r="42" />
-      <circle cx="200" cy="200" r="18" />
+  <rect width="1200" height="630" fill="#f7f5ed"/>
+  <rect width="1200" height="630" fill="url(#light)"/>
+  <g id="composition" transform="translate(0 32)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <g stroke="#879a88" stroke-width="28" opacity=".12" transform="translate(0 7)">
+        <path d="M-30 315H54C110 315 128 120 204 120H996C1072 120 1090 315 1146 315H1230"/>
+        <path d="M54 315C110 315 128 492 224 492H976C1072 492 1090 315 1146 315"/>
+        <path d="M335 120C390 120 383 45 452 45H702C774 45 767 120 824 120"/>
+      </g>
+      <g stroke="#adbaaa" stroke-width="25">
+        <path d="M-30 315H54C110 315 128 120 204 120H996C1072 120 1090 315 1146 315H1230"/>
+        <path d="M54 315C110 315 128 492 224 492H976C1072 492 1090 315 1146 315"/>
+        <path d="M335 120C390 120 383 45 452 45H702C774 45 767 120 824 120"/>
+      </g>
+      <g stroke="#e0e6d6" stroke-width="21">
+        <path d="M-30 315H54C110 315 128 120 204 120H996C1072 120 1090 315 1146 315H1230"/>
+        <path d="M54 315C110 315 128 492 224 492H976C1072 492 1090 315 1146 315"/>
+        <path d="M335 120C390 120 383 45 452 45H702C774 45 767 120 824 120"/>
+      </g>
+      <g stroke="#fffef5" stroke-width="12">
+        <path d="M-30 315H54C110 315 128 120 204 120H996C1072 120 1090 315 1146 315H1230"/>
+        <path d="M54 315C110 315 128 492 224 492H976C1072 492 1090 315 1146 315"/>
+        <path d="M335 120C390 120 383 45 452 45H702C774 45 767 120 824 120"/>
+      </g>
+      <g stroke="#f9f9ed" stroke-width="4">
+        <path d="M-30 315H54C110 315 128 120 204 120H996C1072 120 1090 315 1146 315H1230"/>
+        <path d="M54 315C110 315 128 492 224 492H976C1072 492 1090 315 1146 315"/>
+        <path d="M335 120C390 120 383 45 452 45H702C774 45 767 120 824 120"/>
+      </g>
     </g>
-    <g fill="none" stroke="#121212" stroke-width="1">
-      <path d="M200 58v114M200 228v114M58 200h114M228 200h114" />
-      <path d="M99.7 99.7l80.6 80.6M219.7 219.7l80.6 80.6M300.3 99.7l-80.6 80.6M180.3 219.7l-80.6 80.6" />
+    <circle cx="204" cy="120" r="22" fill="#a6bea8" stroke="#5d8068" stroke-width="4"/>
+    <circle cx="204" cy="120" r="8" fill="#f7f5e9"/>
+    <circle cx="996" cy="120" r="22" fill="#a6bea8" stroke="#5d8068" stroke-width="4"/>
+    <circle cx="996" cy="120" r="8" fill="#f7f5e9"/>
+    <circle cx="224" cy="492" r="22" fill="#a6bea8" stroke="#5d8068" stroke-width="4"/>
+    <circle cx="224" cy="492" r="8" fill="#f7f5e9"/>
+    <circle cx="976" cy="492" r="22" fill="#a6bea8" stroke="#5d8068" stroke-width="4"/>
+    <circle cx="976" cy="492" r="8" fill="#f7f5e9"/>
+    <rect x="559" y="107" width="82" height="26" rx="13" fill="#d5b35f" stroke="#a58231" stroke-width="2"/>
+    <g id="wordmark" transform="translate(-24 0)">
+      <g transform="translate(177 220) scale(3.7)">
+        <g stroke="#141b18" stroke-width="1.15">
+          <path d="M16.2 10.19 19.2 4.99" />
+          <path d="M18.4 14h6" />
+          <path d="M16.2 17.81 19.2 23.01" />
+          <path d="M11.8 17.81 8.8 23.01" />
+          <path d="M11.8 10.19 8.8 4.99" />
+          <path d="M9.6 14h-6" />
+        </g>
+        <circle cx="14" cy="14" r="12.15" stroke="#141b18" stroke-width="2.35" />
+        <circle cx="14" cy="14" r="3.15" stroke="#141b18" stroke-width="1.55" />
+        <path d="M14 1.85v3.55" stroke="#d0a94b" stroke-width="2.15" />
+        <circle cx="14" cy="2.05" r="1.2" fill="#d0a94b" />
+      </g>
+      <text x="315" y="338" fill="#141b18" font-family="'Big Shoulders Display', Impact, sans-serif" font-size="166" font-weight="800" letter-spacing="10" textLength="708" lengthAdjust="spacingAndGlyphs">TUBELESS</text>
+      <text x="600" y="401" text-anchor="middle" fill="#48564b" font-family="'IBM Plex Sans', Arial, sans-serif" font-size="34" font-weight="500" letter-spacing=".4">Managed Agentic Workflows</text>
     </g>
-    <path d="M200 14v36" stroke="#c4a046" stroke-width="3.2" />
-    <circle cx="200" cy="16" r="7" fill="#c4a046" />
   </g>
-
   <g aria-hidden="true">
-    <g fill="none" stroke-linecap="round">
-      <path d="M273 360 C340 360 340 205 407 205" stroke="#879c8d" stroke-width="15" opacity="0.15" transform="translate(0 5)" />
-      <path d="M273 360 C340 360 340 205 407 205" stroke="#bcc7b9" stroke-width="12" />
-      <path d="M273 360 C340 360 340 205 407 205" stroke="#f9faf0" stroke-width="8" />
-      <path d="M273 360 C340 360 340 205 407 205" stroke="#e2e7d8" stroke-width="1" />
-
-      <path d="M273 360 C340 360 340 483 407 483" stroke="#879c8d" stroke-width="15" opacity="0.15" transform="translate(0 5)" />
-      <path d="M273 360 C340 360 340 483 407 483" stroke="#bcc7b9" stroke-width="12" />
-      <path d="M273 360 C340 360 340 483 407 483" stroke="#f9faf0" stroke-width="8" />
-      <path d="M273 360 C340 360 340 483 407 483" stroke="#e2e7d8" stroke-width="1" />
-
-      <path d="M533 205 C605 205 605 360 677 360" stroke="#879c8d" stroke-width="15" opacity="0.15" transform="translate(0 5)" />
-      <path d="M533 205 C605 205 605 360 677 360" stroke="#bcc7b9" stroke-width="12" />
-      <path d="M533 205 C605 205 605 360 677 360" stroke="#f9faf0" stroke-width="8" />
-      <path d="M533 205 C605 205 605 360 677 360" stroke="#e2e7d8" stroke-width="1" />
-
-      <path d="M533 483 C605 483 605 360 677 360" stroke="#879c8d" stroke-width="15" opacity="0.15" transform="translate(0 5)" />
-      <path d="M533 483 C605 483 605 360 677 360" stroke="#bcc7b9" stroke-width="12" />
-      <path d="M533 483 C605 483 605 360 677 360" stroke="#f9faf0" stroke-width="8" />
-      <path d="M533 483 C605 483 605 360 677 360" stroke="#e2e7d8" stroke-width="1" />
-
-      <path d="M803 360 C870 360 870 360 937 360" stroke="#879c8d" stroke-width="15" opacity="0.15" transform="translate(0 5)" />
-      <path d="M803 360 C870 360 870 360 937 360" stroke="#bcc7b9" stroke-width="12" />
-      <path d="M803 360 C870 360 870 360 937 360" stroke="#f9faf0" stroke-width="8" />
-      <path d="M803 360 C870 360 870 360 937 360" stroke="#e2e7d8" stroke-width="1" />
-    </g>
-    <g style="offset-path: path('M273 360 C340 360 340 205 407 205'); offset-distance: 42%; offset-rotate: 0deg; offset-anchor: 0px 0px">
-      <use href="#cargo" />
-    </g>
-    <g style="offset-path: path('M533 483 C605 483 605 360 677 360'); offset-distance: 48%; offset-rotate: 0deg; offset-anchor: 0px 0px">
-      <use href="#cargo" />
-    </g>
-    <g style="offset-path: path('M803 360 C870 360 870 360 937 360'); offset-distance: 55%; offset-rotate: 0deg; offset-anchor: 0px 0px">
-      <use href="#cargo" />
-    </g>
-  </g>
-
-  <g class="green" transform="translate(210 335)">
-    <g transform="scale(1.32)"><use href="#database" /></g>
-    <text class="mono" x="0" y="104" text-anchor="middle" fill="#42524a" font-size="16" paint-order="stroke" stroke="#f3f6e9" stroke-width="5" stroke-linejoin="round">Load</text>
-  </g>
-  <g transform="translate(470 180)">
-    <g transform="scale(1.32)"><use href="#gate" /></g>
-    <text class="mono" x="0" y="104" text-anchor="middle" fill="#42524a" font-size="16" paint-order="stroke" stroke="#f3f6e9" stroke-width="5" stroke-linejoin="round">Validate</text>
-  </g>
-  <g transform="translate(470 458)">
-    <g transform="scale(1.32)"><use href="#funnel" /></g>
-    <text class="mono" x="0" y="104" text-anchor="middle" fill="#42524a" font-size="16" paint-order="stroke" stroke="#f3f6e9" stroke-width="5" stroke-linejoin="round">Normalize</text>
-  </g>
-  <g class="green" transform="translate(740 335)">
-    <g transform="scale(1.32)"><use href="#parcel" /></g>
-    <text class="mono" x="0" y="104" text-anchor="middle" fill="#42524a" font-size="16" paint-order="stroke" stroke="#f3f6e9" stroke-width="5" stroke-linejoin="round">Publish</text>
-  </g>
-  <g transform="translate(1000 335)">
-    <g transform="scale(1.32)"><use href="#server" /></g>
-    <text class="mono" x="0" y="104" text-anchor="middle" fill="#42524a" font-size="16" paint-order="stroke" stroke="#f3f6e9" stroke-width="5" stroke-linejoin="round">Deploy</text>
-  </g>
-
-  <g transform="translate(40 32)">
-    <use href="#wheel-mark" transform="scale(1.7)" />
-    <text class="display" x="58" y="30" fill="#121212" font-size="42" letter-spacing="0.14em">TUBELESS</text>
-    <text class="sans" x="58" y="72" fill="#5c594f" font-size="17">Typed pipelines for Node.js</text>
+    <rect width="240" height="12" fill="#0085ca" />
+    <rect x="240" width="240" height="12" fill="#e30613" />
+    <rect x="480" width="240" height="12" fill="#121212" />
+    <rect x="720" width="240" height="12" fill="#ffd100" />
+    <rect x="960" width="240" height="12" fill="#00a651" />
   </g>
 </svg>

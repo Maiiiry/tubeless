@@ -5,6 +5,7 @@ import type { StoredRunSummary } from "../run-store/run-history.js";
 import type { StoredPipelineRun, StoredPipelineStep } from "../run-store/run-store.js";
 import { StepArtifacts } from "./run-store-ui-artifacts.js";
 import { layoutDag } from "./run-store-ui-graph-layout.js";
+import { preferredScrollBehavior } from "./run-store-ui-common.js";
 import type { StudioApi } from "./run-store-ui-client-transport.js";
 import { DEFAULT_DETAIL_RETRY_MS } from "./run-store-ui-data-controller.js";
 import {
@@ -1000,7 +1001,7 @@ function Inspector({
         <div class="graph-inspector">
           <div class="graph-kicker">Step · {run.pipelineId}</div>
           <div class="step-list">
-            <StepRow step={step} />
+            <StepRow step={step} steps={run.steps} />
           </div>
           <Facts
             rows={[
@@ -1078,10 +1079,12 @@ export interface RunGraphProps {
   /** Loads nested run steps for in-place expansion; nested runs stay collapsed without it. */
   api?: Pick<StudioApi, "loadRunDetail">;
   onOpenRun(runId: string): void;
+  /** Select this top-level step whenever `request` changes, as when a diagnostic links to it. */
+  focus?: { stepId: string; request: number };
 }
 
 /** Live top-to-bottom DAG of one run's steps with expandable child pipelines. */
-export function RunGraph({ detail, api, onOpenRun }: RunGraphProps) {
+export function RunGraph({ detail, api, onOpenRun, focus }: RunGraphProps) {
   const [toggles, setToggles] = useState<ReadonlyMap<string, boolean>>(new Map());
   const opened = useRef(new Set<string>());
   const [loads, setLoads] = useState<ReadonlyMap<string, RunLoad>>(new Map());
@@ -1089,6 +1092,12 @@ export function RunGraph({ detail, api, onOpenRun }: RunGraphProps) {
   const loadedKeys = useRef(new Map<string, string>());
   const [retry, setRetry] = useState(0);
   const pulse = usePulse();
+  const inspector = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focus) return;
+    setSelection({ kind: "step", runId: detail.run.runId, stepId: focus.stepId });
+    inspector.current?.scrollIntoView({ block: "nearest", behavior: preferredScrollBehavior() });
+  }, [focus?.request]);
   const ctx: SceneContext = {
     loads,
     toggles,
@@ -1159,7 +1168,9 @@ export function RunGraph({ detail, api, onOpenRun }: RunGraphProps) {
           <RunSceneView scene={scene} ui={ui} />
         </svg>
       </div>
-      <Inspector selection={selection} ctx={ctx} ui={ui} onOpenRun={onOpenRun} />
+      <div ref={inspector}>
+        <Inspector selection={selection} ctx={ctx} ui={ui} onOpenRun={onOpenRun} />
+      </div>
       <div class="graph-legend" aria-hidden="true">
         <span>
           <i class="running" />

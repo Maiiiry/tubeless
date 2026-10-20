@@ -1,14 +1,13 @@
 import { STUDIO_HISTORY_PAGE_SIZE, type StudioRunDetail } from "./run-store-ui-schema.js";
-import type { StoredDefinitionSummary, StoredRunSummary } from "../run-store/run-history.js";
+import type { StoredRunSummary } from "../run-store/run-history.js";
 import { Status, StepRow, duration, shortId } from "./run-store-ui-steps.js";
 import { RunGraph } from "./run-store-ui-graph.js";
-import { DefinitionHistory } from "./run-store-ui-definitions.js";
 import { ErrorDiagnostics, RunLogs } from "./run-store-ui-debugging.js";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import type { StoredPipelineRun } from "../run-store/run-store.js";
 import type { StudioApi } from "./run-store-ui-client-transport.js";
 import type { StudioRunSelection } from "./run-store-ui-data-controller.js";
-import { EmptyView } from "./run-store-ui-common.js";
+import { EmptyView, preferredScrollBehavior } from "./run-store-ui-common.js";
 
 function dateTime(ms: number): string {
   if (!Number.isFinite(ms) || Math.abs(ms) > 8.64e15) return "";
@@ -28,6 +27,32 @@ function relativeTime(ms: number, nowMs: number): string {
   if (delta < 3600000) return Math.floor(delta / 60000) + "m ago";
   if (delta < 86400000) return Math.floor(delta / 3600000) + "h ago";
   return Math.floor(delta / 86400000) + "d ago";
+}
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/** Lead with what happened: where a run failed or stopped, or how much it finished. */
+export function runOutcome(run: StoredPipelineRun): string {
+  const total = run.steps.length;
+  const count = (status: string) => run.steps.filter((step) => step.status === status).length;
+  const skipped = count("skipped");
+  const skippedNote = skipped ? ` · ${skipped} skipped` : "";
+  switch (run.status) {
+    case "running": {
+      const finished = total - count("running") - count("planned");
+      return total ? `Running · ${finished} of ${plural(total, "step")} finished` : "Starting";
+    }
+    case "completed":
+      return `Completed ${plural(count("completed"), "step")} in ${duration(run.durationMs)}${skippedNote}`;
+    case "cancelled":
+      return `Cancelled after ${count("completed")} of ${plural(total, "step")}${skippedNote}`;
+    case "failed": {
+      const failed = run.steps.filter((step) => step.status === "failed").map((step) => step.id);
+      if (failed.length) return `Failed at ${failed.join(", ")}${skippedNote}`;
+      return run.error?.message ? `Failed: ${run.error.message}` : "Failed";
+    }
+  }
+  return run.status;
 }
 
 interface RunRowProps {
@@ -68,7 +93,7 @@ function RunRow({ nowMs, onSelect, run, selectedRootRunId }: RunRowProps) {
         )}
         <span>{duration(run.durationMs)}</span>
         <i class="dot" />
-        <span>{run.stepCount} steps</span>
+        <span>{plural(run.stepCount, "step")}</span>
         {nestedCount > 0 && (
           <>
             <i class="dot" />
@@ -191,7 +216,7 @@ function NestedRuns({
               <Status value={child.status} />
               <strong>{child.pipelineId}</strong>
               <small>
-                {duration(child.durationMs)} · {child.stepCount} steps
+                {duration(child.durationMs)} · {plural(child.stepCount, "step")}
                 {descendantCount ? " · " + descendantCount + " nested" : ""}
               </small>
             </button>
@@ -241,6 +266,20 @@ function RunDetail({
   stepView = "timeline",
   latestRunId,
 }: RunDetailProps) {
+  const [focus, setFocus] = useState<{ stepId: string; request: number } | undefined>();
+  const readyRunId = selection.status === "ready" ? selection.detail.run.runId : undefined;
+  useEffect(() => setFocus(undefined), [readyRunId]);
+  useEffect(() => {
+    if (!focus || stepView !== "timeline") return;
+    const row = document.querySelector<HTMLElement>(
+      `.step-list [data-step-id="${CSS.escape(focus.stepId)}"]`
+    );
+    if (!row) return;
+    row.scrollIntoView({ block: "center", behavior: preferredScrollBehavior() });
+    row.classList.remove("focused");
+    void row.offsetWidth;
+    row.classList.add("focused");
+  }, [focus, stepView]);
   if (selection.status !== "ready") {
     if (selection.status === "unavailable") {
       return (
@@ -299,12 +338,7 @@ function RunDetail({
               {relativeTime(run.startedAtMs, nowMs)}
             </div>
             <h2>{run.pipelineId}</h2>
-            <p class="definition-identity">
-              Definition:{" "}
-              <code>{run.definitionIdentity?.definitionId ?? "Not recorded (legacy trace)"}</code>
-              <br />
-              Implementation: {run.definitionIdentity?.implementationVersion ?? "Unknown"}
-            </p>
+            <p class={`run-outcome ${run.status}`}>{runOutcome(run)}</p>
             <div class="run-id">{run.runId}</div>
             {run.correlationId && <div class="run-id">Correlation: {run.correlationId}</div>}
           </div>
@@ -363,16 +397,22 @@ function RunDetail({
             <span>{run.eventCount}</span>
           </div>
         </div>
-        <NestedRuns key={run.runId} api={api} detail={detail} onSelect={onSelect} />
         {run.error && (
           <>
             <div class="section-title">
               <span>Error diagnostics</span>
             </div>
-            <ErrorDiagnostics error={run.error} />
+            <ErrorDiagnostics
+              error={run.error}
+              failedStepIds={run.steps
+                .filter((step) => step.status === "failed")
+                .map((step) => step.id)}
+              onSelectStep={(stepId) =>
+                setFocus((current) => ({ stepId, request: (current?.request ?? 0) + 1 }))
+              }
+            />
           </>
         )}
-        {run.logs.length > 0 && <RunLogs key={run.runId} logs={run.logs} />}
         <div class="section-title">
           <span>{stepView === "graph" ? "Step graph" : "Step timeline"}</span>
           <span class="section-title-actions">
@@ -399,21 +439,49 @@ function RunDetail({
             copy="This run ended before a step plan was recorded."
           />
         ) : stepView === "graph" ? (
-          <RunGraph key={run.runId} detail={detail} api={api} onOpenRun={onSelect} />
+          <RunGraph key={run.runId} detail={detail} api={api} onOpenRun={onSelect} focus={focus} />
         ) : (
           <div class="step-list">
             {run.steps.map((step) => (
-              <StepRow key={step.id} step={step} />
+              <StepRow key={step.id} step={step} steps={run.steps} />
             ))}
           </div>
         )}
+        <NestedRuns key={run.runId} api={api} detail={detail} onSelect={onSelect} />
+        {run.logs.length > 0 && <RunLogs key={run.runId} logs={run.logs} />}
+        <details class="run-definition">
+          <summary>
+            Definition{" "}
+            <code>
+              {run.definitionIdentity
+                ? run.definitionIdentity.definitionId.slice(7, 19)
+                : "not recorded (legacy trace)"}
+            </code>{" "}
+            · implementation {run.definitionIdentity?.implementationVersion ?? "unknown"}
+          </summary>
+          <dl class="run-definition-facts">
+            <dt>Definition ID</dt>
+            <dd>
+              <code>{run.definitionIdentity?.definitionId ?? "Not recorded (legacy trace)"}</code>
+            </dd>
+            {run.definitionIdentity && (
+              <>
+                <dt>Structural fingerprint</dt>
+                <dd>
+                  <code>{run.definitionIdentity.structuralFingerprint}</code>
+                </dd>
+              </>
+            )}
+            <dt>Implementation</dt>
+            <dd>{run.definitionIdentity?.implementationVersion ?? "Unknown"}</dd>
+          </dl>
+        </details>
       </div>
     </article>
   );
 }
 
 interface RunsViewProps extends RunDetailProps {
-  definitions?: readonly StoredDefinitionSummary[];
   roots: readonly StoredRunSummary[];
   matchingRootCount?: number;
   offset?: number;
@@ -448,11 +516,6 @@ export function RunsView(props: RunsViewProps) {
     ) : null;
   return (
     <>
-      <DefinitionHistory
-        definitions={props.definitions ?? []}
-        api={props.api}
-        onSelect={props.onSelect}
-      />
       <div class="content-grid">
         <section class="sheet">
           <div class="sheet-head">

@@ -53,10 +53,35 @@ function Cause({ cause, label = "Cause" }: { cause: PipelineErrorCause; label?: 
   );
 }
 
-export function ErrorDiagnostics({ error }: { error: RunError }) {
+interface ErrorDiagnosticsProps {
+  error: RunError;
+  /** Steps that recorded a failure; each links to its timeline row or graph node. */
+  failedStepIds?: readonly string[];
+  onSelectStep?(stepId: string): void;
+}
+
+export function ErrorDiagnostics({
+  error,
+  failedStepIds = [],
+  onSelectStep,
+}: ErrorDiagnosticsProps) {
   const fanOut = error.fanOut;
   return (
     <section aria-label="Run diagnostics" class="error-card">
+      {failedStepIds.length > 0 && (
+        <div class="error-steps">
+          <span>Failed at</span>
+          {failedStepIds.map((stepId) =>
+            onSelectStep ? (
+              <button type="button" key={stepId} onClick={() => onSelectStep(stepId)}>
+                {stepId}
+              </button>
+            ) : (
+              <code key={stepId}>{stepId}</code>
+            )
+          )}
+        </div>
+      )}
       <div class="error-code">
         {error.code} · {error.phase} · {error.kind}
         {error.sourceCode && ` · ${error.sourceCode}`}

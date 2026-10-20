@@ -1,7 +1,12 @@
 import { createRunHistoryIndex } from "../run-store/run-history.js";
 import { expect, it } from "vitest";
 import { RUN_MODEL_VERSION } from "../core/pipeline.js";
-import { resolveSelectedRunId, runIdFromStudioUrl, studioRunUrl } from "./run-store-ui-client.js";
+import {
+  resolveSelectedRunId,
+  resolveStudioView,
+  runIdFromStudioUrl,
+  studioRunUrl,
+} from "./run-store-ui-client.js";
 import type { StoredPipelineRun } from "../run-store/run-store.js";
 
 function run(
@@ -42,4 +47,13 @@ it("preserves an explicitly selected or linked run even when it is unavailable",
   const launched = run({ runId: "launched", startedAtMs: 2 });
   const refreshedIndex = createRunHistoryIndex([previous, launched]);
   expect(resolveSelectedRunId("launched", refreshedIndex.roots)).toBe("launched");
+});
+
+it("leaves the Definitions view when loaded history has no definitions", () => {
+  const empty = { definitions: [] };
+  const recorded = { definitions: [{}] };
+  expect(resolveStudioView("definitions", empty)).toBe("runs");
+  expect(resolveStudioView("definitions", recorded)).toBe("definitions");
+  expect(resolveStudioView("definitions", null)).toBe("definitions");
+  expect(resolveStudioView("pipelines", empty)).toBe("pipelines");
 });

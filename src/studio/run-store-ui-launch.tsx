@@ -229,23 +229,35 @@ export function CommandFields({ command, onChange, values }: CommandFieldsProps)
       .map((parameter, index) => ({ index, parameter }))
       .filter(({ parameter }) => (parameter.group === "execution") === execution);
     if (!parameters.length) return null;
-    return (
+    const grid = (
+      <div class="parameter-grid">
+        {parameters.map(({ index, parameter }) => (
+          <ParameterControl
+            key={parameter.key}
+            index={index}
+            onChange={onChange}
+            parameter={parameter}
+            values={values[index] ?? []}
+          />
+        ))}
+      </div>
+    );
+    // Execution controls have working defaults, so they stay folded until needed.
+    return execution ? (
+      <details class="form-section execution-controls">
+        <summary class="form-section-head">
+          <strong>{title}</strong>
+          <span>{note}</span>
+        </summary>
+        {grid}
+      </details>
+    ) : (
       <section class="form-section">
         <div class="form-section-head">
           <strong>{title}</strong>
           <span>{note}</span>
         </div>
-        <div class="parameter-grid">
-          {parameters.map(({ index, parameter }) => (
-            <ParameterControl
-              key={parameter.key}
-              index={index}
-              onChange={onChange}
-              parameter={parameter}
-              values={values[index] ?? []}
-            />
-          ))}
-        </div>
+        {grid}
       </section>
     );
   };
@@ -259,7 +271,12 @@ export function CommandFields({ command, onChange, values }: CommandFieldsProps)
         "Pipeline inputs",
         domainCount + " parameter" + (domainCount === 1 ? "" : "s")
       )}
-      {renderSection(true, "Execution controls", "Built into Tubeless")}
+      {domainCount === 0 && <p class="form-empty">This pipeline takes no inputs.</p>}
+      {renderSection(
+        true,
+        "Execution controls",
+        "Built into Tubeless · dry run, step selection, cache, concurrency"
+      )}
     </div>
   );
 }
@@ -388,7 +405,15 @@ export function LaunchModal({ api, commands, commandId, onClose, onLaunched }: L
             ×
           </button>
         </div>
-        <form class="launch-form" onSubmit={launch}>
+        <form
+          class="launch-form"
+          onSubmit={launch}
+          onInvalidCapture={(event) => {
+            // Reveal a folded section so the browser can show its validation message.
+            const field = event.target instanceof HTMLElement ? event.target : null;
+            field?.closest("details")?.setAttribute("open", "");
+          }}
+        >
           <div class="field">
             <label for="launchCommand">Pipeline command</label>
             <select

@@ -12,6 +12,7 @@ import { commandDescription, errorMessage } from "./run-store-ui-common.js";
 import { PipelinesView } from "./run-store-ui-pipelines.js";
 import { RunsView } from "./run-store-ui-runs.js";
 import { LaunchModal } from "./run-store-ui-launch.js";
+import { DefinitionHistory } from "./run-store-ui-definitions.js";
 
 function Metrics({ commandCount, snapshot }: { commandCount: number; snapshot: StudioSnapshot }) {
   const terminal = snapshot.completedRunCount + snapshot.failedRunCount;
@@ -135,7 +136,16 @@ function ClearHistoryModal({ api, onCleared, onClose, snapshot }: ClearHistoryMo
   );
 }
 
-type StudioView = "pipelines" | "runs";
+export type StudioView = "pipelines" | "runs" | "definitions";
+
+const viewHeadings: Record<StudioView, { title: string; lede: string }> = {
+  pipelines: { title: "Pipelines", lede: "Choose a declared workflow to configure and run." },
+  runs: { title: "Runs", lede: "Live work and durable history in one place." },
+  definitions: {
+    title: "Definitions",
+    lede: "Recorded pipeline versions, their runs, and what changed between them.",
+  },
+};
 
 const studioMount =
   typeof document === "undefined"
@@ -160,6 +170,14 @@ export function studioRunUrl(href: string, runId: string): string {
   const url = new URL(href);
   url.searchParams.set("run", runId);
   return url.href;
+}
+
+/** Leave the Definitions view once a loaded history has none, e.g. after Clear history. */
+export function resolveStudioView(
+  view: StudioView,
+  snapshot: { readonly definitions: readonly unknown[] } | null | undefined
+): StudioView {
+  return view === "definitions" && snapshot && snapshot.definitions.length === 0 ? "runs" : view;
 }
 
 export function resolveSelectedRunId(
@@ -273,6 +291,11 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
   const roots = snapshot?.runs ?? [];
 
   useEffect(() => {
+    const next = resolveStudioView(view, snapshot);
+    if (next !== view) setView(next);
+  }, [snapshot, view]);
+
+  useEffect(() => {
     if (!snapshot || !commandsLoaded || view !== "runs" || selectedRunId) return;
     const next = resolveSelectedRunId(selectedRunId, roots);
     if (!next) return;
@@ -319,6 +342,7 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
       commandDescription(command).toLowerCase().includes(query.toLowerCase())
   );
   const isPipelines = view === "pipelines";
+  const definitions = snapshot?.definitions ?? [];
 
   if (accessDenied) return <StudioAccessNotice status={accessDenied} href={window.location.href} />;
 
@@ -360,7 +384,7 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
               </button>
             )}
             <button
-              class={isPipelines ? "" : "active"}
+              class={view === "runs" ? "active" : ""}
               type="button"
               title="Runs"
               onClick={() => setView("runs")}
@@ -372,6 +396,22 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
               <span>Runs</span>
               <b class="nav-count">{snapshot?.runCount ?? 0}</b>
             </button>
+            {definitions.length > 0 && (
+              <button
+                class={view === "definitions" ? "active" : ""}
+                type="button"
+                title="Definitions"
+                onClick={() => setView("definitions")}
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="3" width="6" height="6" rx="1.5" />
+                  <rect x="11" y="11" width="6" height="6" rx="1.5" />
+                  <path d="M9 6h3a2 2 0 0 1 2 2v3" />
+                </svg>
+                <span>Definitions</span>
+                <b class="nav-count">{definitions.length}</b>
+              </button>
+            )}
           </nav>
           <div class="rail-foot">
             <div class="connection">
@@ -379,63 +419,61 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
               <span>{connection.label}</span>
             </div>
             <div class="database">append-only SQLite</div>
+            {canClearHistory && (
+              <button
+                class="rail-action"
+                id="clearHistoryButton"
+                type="button"
+                aria-label="Clear history"
+                disabled={!snapshot?.runCount}
+                title={
+                  snapshot?.activeRunCount
+                    ? "Clear history, including runs left active by an interrupted process"
+                    : "Clear history"
+                }
+                onClick={() => setClearHistoryOpen(true)}
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  aria-hidden="true"
+                >
+                  <path d="M3 4.5h10M6 2.5h4M5 4.5l.5 9h5l.5-9M7 7v4M9 7v4" />
+                </svg>
+                <span>Clear history…</span>
+              </button>
+            )}
           </div>
         </aside>
         <main class="workspace">
           <header class="topbar">
             <div>
-              <div class="eyebrow">Execution workspace</div>
-              <h1>{isPipelines ? "Pipelines" : "Runs"}</h1>
-              <p class="lede">
-                {isPipelines
-                  ? "Choose a declared workflow to configure and run."
-                  : "Live work and durable history in one place."}
-              </p>
+              <h1>{viewHeadings[view].title}</h1>
+              <p class="lede">{viewHeadings[view].lede}</p>
             </div>
             <div class="toolbar">
-              <input
-                class="search"
-                type="search"
-                value={query}
-                placeholder={isPipelines ? "Filter pipelines" : "Filter runs or IDs"}
-                aria-label="Filter"
-                onInput={(event) => {
-                  const value = event.currentTarget.value.trim();
-                  if (isPipelines) setCommandQuery(value);
-                  else dataController.setHistoryQuery({ query: value });
-                }}
-              />
+              {view !== "definitions" && (
+                <input
+                  class="search"
+                  type="search"
+                  value={query}
+                  placeholder={isPipelines ? "Filter pipelines" : "Filter runs or IDs"}
+                  aria-label="Filter"
+                  onInput={(event) => {
+                    const value = event.currentTarget.value.trim();
+                    if (isPipelines) setCommandQuery(value);
+                    else dataController.setHistoryQuery({ query: value });
+                  }}
+                />
+              )}
               {commands.length > 0 && (
                 <button
                   class="primary-button"
                   onClick={() => setLaunchCommandId(commands[0]?.id ?? "")}
                 >
                   Run pipeline
-                </button>
-              )}
-              {canClearHistory && (
-                <button
-                  class="danger-button"
-                  id="clearHistoryButton"
-                  type="button"
-                  disabled={!snapshot?.runCount}
-                  title={
-                    snapshot?.activeRunCount
-                      ? "Clear history, including runs left active by an interrupted process"
-                      : "Clear history"
-                  }
-                  onClick={() => setClearHistoryOpen(true)}
-                >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    aria-hidden="true"
-                  >
-                    <path d="M3 4.5h10M6 2.5h4M5 4.5l.5 9h5l.5-9M7 7v4M9 7v4" />
-                  </svg>
-                  <span>Clear history</span>
                 </button>
               )}
               <button
@@ -461,33 +499,37 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
           </header>
           {snapshot && (
             <>
-              <section class="metrics">
-                <Metrics commandCount={commands.length} snapshot={snapshot} />
-              </section>
-              <section>
-                {isPipelines ? (
-                  <PipelinesView commands={filteredCommands} onConfigure={setLaunchCommandId} />
-                ) : (
-                  <RunsView
-                    definitions={snapshot.definitions}
-                    api={api}
-                    offset={snapshot.offset}
-                    matchingRootCount={snapshot.matchingRootCount}
-                    onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
-                    canCancel={canCancel}
-                    cancelling={cancelling}
-                    liveRunIds={snapshot.liveRunIds ?? []}
-                    nowMs={nowMs}
-                    onCancel={(id) => void cancelRun(id)}
-                    onCopyLink={(id) => void copyRunLink(id)}
-                    onSelect={selectRun}
-                    roots={roots}
-                    selection={selection}
-                    latestRunId={roots[0]?.runId}
-                    totalRunCount={snapshot.runCount}
-                  />
-                )}
-              </section>
+              {isPipelines && (
+                <section class="metrics">
+                  <Metrics commandCount={commands.length} snapshot={snapshot} />
+                </section>
+              )}
+              {isPipelines && (
+                <PipelinesView commands={filteredCommands} onConfigure={setLaunchCommandId} />
+              )}
+              {view === "runs" && (
+                <RunsView
+                  api={api}
+                  offset={snapshot.offset}
+                  matchingRootCount={snapshot.matchingRootCount}
+                  onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
+                  canCancel={canCancel}
+                  cancelling={cancelling}
+                  liveRunIds={snapshot.liveRunIds ?? []}
+                  nowMs={nowMs}
+                  onCancel={(id) => void cancelRun(id)}
+                  onCopyLink={(id) => void copyRunLink(id)}
+                  onSelect={selectRun}
+                  roots={roots}
+                  selection={selection}
+                  latestRunId={roots[0]?.runId}
+                  totalRunCount={snapshot.runCount}
+                />
+              )}
+              {/* Stay mounted so the chosen definition and comparison survive view changes. */}
+              <div hidden={view !== "definitions"}>
+                <DefinitionHistory definitions={definitions} api={api} onSelect={selectRun} />
+              </div>
             </>
           )}
         </main>

@@ -30,3 +30,10 @@ export function commandDescription(command: PipelineRunStudioCommand): string {
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message || String(error) : String(error);
 }
+
+/** Smooth scrolling unless the user asked for reduced motion; CSS cannot override an explicit behavior. */
+export function preferredScrollBehavior(
+  matchMedia: ((query: string) => { matches: boolean }) | undefined = globalThis.matchMedia
+): ScrollBehavior {
+  return matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}

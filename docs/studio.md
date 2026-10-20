@@ -47,11 +47,18 @@ and unchanged refreshes reuse the current history page. Definition run pages
 refresh independently, preserving metadata search, grouping, and comparisons.
 Failed definition requests offer a retry beside the affected content.
 
-Run details put debugging information before the step timeline. Structured errors
-show validation issue paths, expandable cause chains, failed fan-out items, and any
-omitted failure count. Logs can be searched by message text and filtered by level
-and step; the count shows how many entries match. These diagnostics are limited to
-the selected run. Open a nested run to inspect its own errors and logs.
+Run details lead with a one-line outcome, such as where the run failed or how
+many steps it completed, followed by error diagnostics, the steps, nested runs, and
+logs. The run list stays in view while you scroll the details. Structured errors
+name the failed steps; select one to jump to its timeline row or graph node. They
+also show validation issue paths, expandable cause chains, failed fan-out items,
+and any omitted failure count. Skipped steps explain why they did not run, naming
+the failed gate or unavailable required input when the recording identifies it.
+Retries appear beside the step's duration. Logs can be searched by message text and
+filtered by level and step; the count shows how many entries match. These
+diagnostics are limited to the selected run. Open a nested run to inspect its own
+errors and logs. The definition identity that produced the run is folded under
+**Definition** at the end of the details.
 
 The selected run appears in the browser URL as `?run=<run-id>`. Selecting a run,
 including a nested run, adds a browser history entry, so Back and Forward restore
@@ -104,12 +111,12 @@ attempt, artifacts, and nested runs, or to open a nested run. Recordings made be
 dependencies were recorded show steps without arrows. Animations respect the
 reduced-motion setting.
 
-| Control       | What it does                                                                           | When available                                                                       |
-| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Preview plan  | Shows the selected steps and dry-run behavior without starting or recording a run      | A pipeline command is registered                                                     |
-| Run pipeline  | Validates the form values and starts the command                                       | A command is registered locally or in gateway mode                                   |
-| Cancel run    | Aborts the selected live run without stopping Studio or sibling runs                   | This Studio process owns the top-level launch                                        |
-| Clear history | Deletes all recorded SQLite events and attempts database compaction after confirmation | Local SQLite mode with the maintenance capability enabled and no known active writer |
+| Control       | What it does                                                                                                                                   | When available                                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Preview plan  | Shows the selected steps and dry-run behavior without starting or recording a run                                                              | A pipeline command is registered                                                     |
+| Run pipeline  | Validates the form values and starts the command                                                                                               | A command is registered locally or in gateway mode                                   |
+| Cancel run    | Aborts the selected live run without stopping Studio or sibling runs                                                                           | This Studio process owns the top-level launch                                        |
+| Clear history | Deletes all recorded SQLite events and attempts database compaction after confirmation; the action sits in the sidebar footer beside the store | Local SQLite mode with the maintenance capability enabled and no known active writer |
 
 Preview uses the form's dry-run and step/target controls. It does not validate
 business inputs; those are checked when you run the command. A preview is
@@ -172,9 +179,11 @@ for booleans, selects for constrained strings, bounded numeric fields, and text
 fields for paths and other values. Submitted values go through the command's
 normal validation and option mapping. Studio does not construct a shell command.
 
-Pipeline command forms include
-**Max Concurrency**, a positive integer defaulting to `1`, under execution controls;
-it has the same behavior as the CLI's `--max-concurrency` flag.
+Pipeline inputs come first. Execution controls (dry run, step and target
+selection, cache, failure handling, and **Max Concurrency**) are folded beneath
+them because their defaults run every step once; expand the section to change
+them. Max Concurrency is a positive integer defaulting to `1` and has the same
+behavior as the CLI's `--max-concurrency` flag.
 
 ## Custom adapters in a project
 
@@ -278,8 +287,8 @@ or runtime return values. Remote handler versions belong in the application-supp
 implementation version. External pipeline implementations without definition metadata
 contribute only their declared child IDs and composition metadata.
 
-In Studio's Runs view, **Observed definitions** groups recordings by pipeline ID
-and definition ID. Select a definition to see its runs. **Compare from** shows
+Studio's **Definitions** view, in the sidebar once a run records its definition,
+groups recordings by pipeline ID and definition ID. Select a definition to see its runs. **Compare from** shows
 changes from another observed version of the same pipeline to the selected version:
 added/removed steps, execution order, edges, targets, policies, validation boundaries,
 child/remote metadata, and implementation versions. Child steps stay opaque wrappers;

@@ -8,10 +8,11 @@ import { RUN_MODEL_VERSION, type PipelinePlan } from "../core/pipeline.js";
 import type { StoredPipelineRun } from "../run-store/run-store.js";
 import { StudioAccessNotice } from "./run-store-ui-client.js";
 import { CommandFields } from "./run-store-ui-launch.js";
+import { preferredScrollBehavior } from "./run-store-ui-common.js";
 import { PipelinesView, PlanView } from "./run-store-ui-pipelines.js";
 import type { StudioApi } from "./run-store-ui-client-transport.js";
-import { isoTime, RunsView } from "./run-store-ui-runs.js";
-import { Status } from "./run-store-ui-steps.js";
+import { isoTime, RunsView, runOutcome } from "./run-store-ui-runs.js";
+import { Status, skipExplanation } from "./run-store-ui-steps.js";
 import type { PipelineRunStudioCommand } from "./run-store-ui-protocol.js";
 
 const command: PipelineRunStudioCommand = {
@@ -496,3 +497,183 @@ it.each([401, 403] as const)(
     expect(html).not.toContain("<button");
   }
 );
+
+describe("run detail hierarchy", () => {
+  const failedRun = run({
+    status: "failed",
+    durationMs: 4,
+    error: {
+      code: "TUBELESS_STEP_FAILED",
+      kind: "step",
+      message: "valid-prices: expected values between 0 and 10000",
+      phase: "execution",
+    },
+    definitionIdentity: {
+      definitionId: "sha256:" + "a".repeat(64),
+      implementationVersion: "v7",
+      structuralFingerprint: "sha256:" + "b".repeat(64),
+      version: 1,
+    },
+    steps: [
+      { id: "prices", status: "completed" },
+      {
+        id: "valid-prices",
+        status: "failed",
+        dependencies: ["prices"],
+        attempt: {
+          attemptId: "attempt-valid-prices",
+          retries: [2],
+          startedAtMs: 1_000,
+          status: "failed",
+        },
+      },
+      {
+        id: "summarize",
+        status: "skipped",
+        dependencies: ["valid-prices"],
+        skipReason: "unmet-dependency",
+      },
+      {
+        id: "publish",
+        status: "skipped",
+        skipAfterFailureOf: ["valid-prices"],
+        skipReason: "failed-dependency",
+      },
+    ],
+  });
+
+  function renderDetail(target: StoredPipelineRun) {
+    const index = createRunHistoryIndex([target]);
+    return renderToString(
+      <RunsView
+        canCancel={false}
+        cancelling={false}
+        liveRunIds={[]}
+        nowMs={2_000}
+        onCancel={() => {}}
+        onCopyLink={() => {}}
+        onSelect={() => {}}
+        roots={index.roots.map((entry) => summarizeRun(entry, index))}
+        selection={{
+          status: "ready",
+          runId: target.runId,
+          summary: summarizeRun(target, index),
+          detail: studioRunDetail(target),
+        }}
+        totalRunCount={1}
+      />
+    );
+  }
+
+  it("leads with the outcome and links diagnostics to the failed step", () => {
+    const markup = renderDetail(failedRun);
+    expect(markup).toContain("Failed at valid-prices · 2 skipped");
+    expect(markup).toMatch(/Failed at<\/span><button type="button">valid-prices<\/button>/);
+    const order = ["Error diagnostics", "Step timeline", "run-definition"].map((marker) =>
+      markup.indexOf(marker)
+    );
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(order.every((position) => position >= 0)).toBe(true);
+  });
+
+  it("explains skips and keeps execution identifiers out of step rows", () => {
+    const markup = renderDetail(failedRun);
+    expect(markup).toContain("Skipped because required input “valid-prices” was failed.");
+    expect(markup).toContain("Skipped because failure gate “valid-prices” failed.");
+    expect(markup).toContain("1 retry");
+    expect(markup).toContain('title="attempt-valid-prices"');
+    expect(markup).not.toContain(">attempt-valid-prices<");
+    expect(markup).not.toContain("Observed definitions");
+  });
+
+  it("folds definition identity into a disclosure", () => {
+    const markup = renderDetail(failedRun);
+    expect(markup).toContain('<details class="run-definition">');
+    expect(markup).toContain("<code>aaaaaaaaaaaa</code> · implementation v7");
+    expect(markup).toContain("sha256:" + "b".repeat(64));
+  });
+
+  it.each([
+    [
+      run({ status: "completed", durationMs: 1_500, steps: [{ id: "a", status: "completed" }] }),
+      "Completed 1 step in 1.5 s",
+    ],
+    [
+      run({
+        status: "running",
+        steps: [
+          { id: "a", status: "completed" },
+          { id: "b", status: "running" },
+          { id: "c", status: "planned" },
+        ],
+      }),
+      "Running · 1 of 3 steps finished",
+    ],
+    [
+      run({
+        status: "cancelled",
+        steps: [
+          { id: "a", status: "completed" },
+          { id: "b", status: "cancelled" },
+        ],
+      }),
+      "Cancelled after 1 of 2 steps",
+    ],
+    [
+      run({
+        status: "failed",
+        error: {
+          code: "TUBELESS_STEP_FAILED",
+          kind: "validation",
+          message: "bad input",
+          phase: "planning",
+        },
+      }),
+      "Failed: bad input",
+    ],
+  ] as const)("summarizes %#", (target, expected) => {
+    expect(runOutcome(target)).toBe(expected);
+  });
+
+  it("names skips that no recorded input explains generically", () => {
+    expect(
+      skipExplanation({ id: "x", status: "skipped", skipReason: "failed-dependency" }, [])
+    ).toBe("Skipped because a failure gate failed or was cancelled.");
+    expect(skipExplanation({ id: "x", status: "skipped", skipReason: "fail-fast" }, [])).toBe(
+      "Not started: the run stopped after an earlier failure."
+    );
+    expect(skipExplanation({ id: "x", status: "completed" }, [])).toBeUndefined();
+  });
+
+  it("folds execution controls behind a disclosure", () => {
+    const markup = renderToString(
+      <CommandFields
+        command={{
+          ...command,
+          parameters: [
+            ...command.parameters,
+            {
+              flag: "--dry-run",
+              group: "execution",
+              key: "dryRun",
+              multiple: false,
+              positional: false,
+              required: false,
+              type: "boolean",
+            },
+          ],
+        }}
+        values={[[""], [false]]}
+        onChange={() => {}}
+      />
+    );
+    expect(markup).toContain('<details class="form-section execution-controls">');
+    expect(markup.indexOf("Pipeline inputs")).toBeLessThan(markup.indexOf("Execution controls"));
+  });
+});
+
+it("scrolls instantly when the user prefers reduced motion", () => {
+  expect(preferredScrollBehavior(() => ({ matches: true }))).toBe("auto");
+  expect(preferredScrollBehavior(() => ({ matches: false }))).toBe("smooth");
+  expect(preferredScrollBehavior(undefined)).toBe("smooth");
+});

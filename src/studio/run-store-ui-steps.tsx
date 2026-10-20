@@ -95,7 +95,57 @@ function StepStatusIcon({ value }: { value: string }) {
   );
 }
 
-export function StepRow({ step }: { step: StoredPipelineStep }) {
+const settled = (status: string | undefined) => status === "failed" || status === "cancelled";
+
+/**
+ * Explain a recorded skip from the step's own reason and the recorded statuses of
+ * its planned inputs. Traces keep the reason, not the triggering dependency, so the
+ * named step is the first planned gate or input whose outcome matches that reason.
+ */
+export function skipExplanation(
+  step: StoredPipelineStep,
+  steps: readonly StoredPipelineStep[]
+): string | undefined {
+  if (step.status !== "skipped" || !step.skipReason) return undefined;
+  const statusOf = (id: string) => steps.find((candidate) => candidate.id === id)?.status;
+  switch (step.skipReason) {
+    case "failed-dependency": {
+      const gate = step.skipAfterFailureOf?.find((id) => settled(statusOf(id)));
+      return gate
+        ? `Skipped because failure gate “${gate}” ${statusOf(gate)}.`
+        : "Skipped because a failure gate failed or was cancelled.";
+    }
+    case "unmet-dependency": {
+      const input = step.dependencies?.find((id) => {
+        const candidate = steps.find((entry) => entry.id === id);
+        return (
+          candidate &&
+          candidate.status !== "completed" &&
+          !(candidate.status === "skipped" && candidate.skipReason === "policy")
+        );
+      });
+      return input
+        ? `Skipped because required input “${input}” was ${statusOf(input)}.`
+        : "Skipped because a required input was unavailable.";
+    }
+    case "fail-fast":
+      return "Not started: the run stopped after an earlier failure.";
+    case "dry-run":
+      return "Skipped by its dry-run policy.";
+    case "policy":
+      return "Skipped by its runtime skip policy.";
+    case "filtered":
+      return "Not selected for this run.";
+  }
+}
+
+interface StepRowProps {
+  step: StoredPipelineStep;
+  /** Sibling steps from the same run, used to name the input behind a skip. */
+  steps?: readonly StoredPipelineStep[];
+}
+
+export function StepRow({ step, steps = [] }: StepRowProps) {
   const progressTotal = step.progress?.total;
   const progressWidth = progressTotal
     ? Math.max(0, Math.min(100, ((step.progress?.completed ?? 0) / progressTotal) * 100))
@@ -109,16 +159,26 @@ export function StepRow({ step }: { step: StoredPipelineStep }) {
       ? nested.stepIds.length + " of " + nestedCount + " declared steps"
       : nestedCount + " declared steps";
   const detailCount = step.progress?.detailCount;
+  const retries = step.attempt?.retries.length ?? 0;
+  const skipped = skipExplanation(step, steps);
   return (
-    <article class={`step ${step.status}`}>
+    <article class={`step ${step.status}`} data-step-id={step.id}>
       <StepStatusIcon value={step.status} />
       <div class="step-head">
         <strong>{step.name || step.id}</strong>
         {step.outputSource && <Status value={step.status} outputSource={step.outputSource} />}
         {step.name && <code>{step.id}</code>}
-        <span class="step-duration">{duration(step.durationMs)}</span>
+        {retries > 0 && (
+          <span class="step-retries">
+            {retries} retr{retries === 1 ? "y" : "ies"}
+          </span>
+        )}
+        <span class="step-duration" title={step.attempt?.attemptId}>
+          {duration(step.durationMs)}
+        </span>
       </div>
       {step.description && <div class="step-description">{step.description}</div>}
+      {skipped && <div class="step-skip-reason">{skipped}</div>}
       {nested && (
         <NestedDetail
           label={nested.pipelineId}
@@ -127,24 +187,6 @@ export function StepRow({ step }: { step: StoredPipelineStep }) {
         />
       )}
       {step.remote && <NestedDetail label={step.remote.engine} secondary={step.remote.target} />}
-      {step.attempt && (
-        <div class="execution">
-          <span class="execution-summary" title={step.attempt.attemptId}>
-            <b>
-              {step.attempt.outputSource === "override"
-                ? "Override validation"
-                : step.attempt.outputSource === "cache"
-                  ? "Cache validation"
-                  : "Execution"}
-            </b>{" "}
-            · {shortId(step.attempt.attemptId)}
-            {step.attempt.retries.length > 0 &&
-              ` · ${step.attempt.retries.length} retr${
-                step.attempt.retries.length === 1 ? "y" : "ies"
-              }`}
-          </span>
-        </div>
-      )}
       {step.artifacts && <StepArtifacts artifacts={step.artifacts} stepId={step.id} />}
       {step.progress && (
         <>

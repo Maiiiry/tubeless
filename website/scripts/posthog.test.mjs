@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -31,7 +30,11 @@ function assertEnabled(html, expected) {
 }
 
 async function buildWith(config) {
-  const outDir = await mkdtemp(join(tmpdir(), "tubeless-posthog-"));
+  // Astro renames prerendered assets into outDir, which fails across filesystems
+  // (EXDEV) when the OS temp directory is a separate mount, as on some CI runners.
+  const scratch = join(websiteRoot, ".astro");
+  await mkdir(scratch, { recursive: true });
+  const outDir = await mkdtemp(join(scratch, "posthog-test-"));
   const env = {
     ...process.env,
     PUBLIC_POSTHOG_HOST: config.apiHost ?? "",

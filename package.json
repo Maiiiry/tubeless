@@ -88,7 +88,7 @@
     "@types/node": "22.20.5",
     "@vitest/coverage-v8": "5.0.5",
     "cf": "1.0.0-beta.20",
-    "inngest": "4.25.0",
+    "inngest": "4.26.0",
     "knip": "6.42.1",
     "miniflare": "5.20261012.1-beta",
     "oxfmt": "0.74.0",

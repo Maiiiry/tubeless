@@ -732,7 +732,7 @@ function inspectorContent({
   selection: GraphSelection | null;
   ctx: SceneContext;
   ui: GraphUi;
-  onOpenRun(runId: string): void;
+  onOpenRun(runId: string, pipelineId?: string): void;
 }) {
   const run = selection ? ctx.runs.get(selection.runId) : undefined;
   if (selection?.kind === "run") {
@@ -767,7 +767,11 @@ function inspectorContent({
             ]}
           />
           <div class="graph-actions">
-            <button class="primary-button" type="button" onClick={() => onOpenRun(summary.runId)}>
+            <button
+              class="primary-button"
+              type="button"
+              onClick={() => onOpenRun(summary.runId, summary.pipelineId)}
+            >
               Open run
             </button>
             {ctx.expandable.has(summary.runId) && (
@@ -950,7 +954,7 @@ export interface RunGraphProps {
   detail: StudioRunDetail;
   /** Loads nested run steps for in-place expansion; nested runs stay collapsed without it. */
   api?: Pick<StudioApi, "loadRunDetail">;
-  onOpenRun(runId: string): void;
+  onOpenRun(runId: string, pipelineId?: string): void;
   /** Top-level step to select, following the page URL. */
   selectedStepId?: string;
   /** Changes when a diagnostic asks to reveal the selected step. */

@@ -161,7 +161,8 @@ export function NestedRuns({
 }: {
   api?: Pick<StudioApi, "loadChildRuns">;
   detail: StudioRunDetail;
-  onSelect(id: string): void;
+  /** Receives the child's pipeline so its run page can scope the list to it. */
+  onSelect(id: string, pipelineId?: string): void;
 }) {
   const [extra, setExtra] = useState<readonly StoredRunSummary[]>([]);
   const [nextPage, setNextPage] = useState(1);
@@ -213,7 +214,7 @@ export function NestedRuns({
               class="nested-run"
               type="button"
               key={child.runId}
-              onClick={() => onSelect(child.runId)}
+              onClick={() => onSelect(child.runId, child.pipelineId)}
             >
               <Status value={child.status} />
               <strong>{child.pipelineId}</strong>
@@ -485,7 +486,8 @@ interface RunDetailProps {
   nowMs: number;
   onCancel(id: string): void;
   onCopyLink(id: string): void;
-  onSelect(id: string): void;
+  /** Opens a run; nested-run links pass the run's pipeline when they know it. */
+  onSelect(id: string, pipelineId?: string): void;
   onStepView?(view: StepView): void;
   selection: StudioRunSelection;
   stepView?: StepView;

@@ -84,7 +84,7 @@ function ChildRunList({
 }: {
   runs: readonly StoredRunSummary[];
   total: number;
-  onOpenRun(runId: string): void;
+  onOpenRun(runId: string, pipelineId?: string): void;
 }) {
   if (runs.length === 0) return null;
   const label = total > runs.length ? `${runs.length} of ${total}` : String(runs.length);
@@ -97,7 +97,7 @@ function ChildRunList({
             class="nested-run"
             type="button"
             key={child.runId}
-            onClick={() => onOpenRun(child.runId)}
+            onClick={() => onOpenRun(child.runId, child.pipelineId)}
           >
             <Status value={child.status} />
             <strong>{child.origin?.itemKey ?? child.pipelineId}</strong>
@@ -137,7 +137,7 @@ interface StepInspectorProps {
   /** Child runs this step started, as far as they are loaded. */
   childRuns: readonly StoredRunSummary[];
   childTotal: number;
-  onOpenRun(runId: string): void;
+  onOpenRun(runId: string, pipelineId?: string): void;
   onSelectInput(stepId: string): void;
   onSelectConsumer(stepId: string): void;
 }

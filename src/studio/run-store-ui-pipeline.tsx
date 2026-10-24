@@ -84,7 +84,9 @@ function PipelineGraph({
     : planCommandId
       ? `plan:${planCommandId}`
       : "";
-  // Depend on identifiers, not snapshot objects, so history refreshes do not reload the graph.
+  // Legacy observations can replace their graph, and a later run can complete an identified
+  // definition's truncated snapshot; reload on that revision, not on every history refresh.
+  const revision = definitionId ? latest?.runCount : latest?.lastSeenAtMs;
   const load = useCallback(async (): Promise<readonly PlannedStep[]> => {
     if (hasDefinition) return (await api.loadDefinition(pipelineId, definitionId)).steps;
     if (planCommandId)
@@ -101,7 +103,7 @@ function PipelineGraph({
         })
       );
     return [];
-  }, [api, definitionId, hasDefinition, pipelineId, planCommandId]);
+  }, [api, definitionId, hasDefinition, pipelineId, planCommandId, revision]);
   const steps = useStudioResource(api, key, load);
   if (!key) {
     return (

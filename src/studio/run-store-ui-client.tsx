@@ -12,7 +12,7 @@ import { commandDescription, errorMessage } from "./run-store-ui-common.js";
 import { RunCrumbs, RunList, RunsView } from "./run-store-ui-runs.js";
 import { LaunchModal } from "./run-store-ui-launch.js";
 import { PipelinePage } from "./run-store-ui-pipeline.js";
-import { latestStatus, Rail, railPipelines } from "./run-store-ui-rail.js";
+import { latestStatus, Rail, railPipelines, type RailPipeline } from "./run-store-ui-rail.js";
 import {
   parseStudioRoute,
   studioPage,
@@ -160,6 +160,23 @@ export function scopeForRun(
   return listed.some((run) => run.runId === runId)
     ? currentScope
     : known.find((run) => run.runId === runId)?.pipelineId;
+}
+
+/**
+ * The sidebar summarizes at most STUDIO_PIPELINE_LIMIT pipelines. An older one still
+ * exists when a definition names it or its own scoped history read finds runs; while
+ * a search is active, an empty result does not prove the pipeline is gone.
+ */
+export function pipelineFromHistory(
+  pipelineId: string,
+  snapshot: Pick<StudioSnapshot, "definitions" | "matchingRootCount"> | null,
+  scopedRead: boolean,
+  query: string
+): RailPipeline | undefined {
+  const recorded =
+    snapshot?.definitions.some((definition) => definition.pipelineId === pipelineId) ||
+    (scopedRead && ((snapshot?.matchingRootCount ?? 0) > 0 || query !== ""));
+  return recorded ? { pipelineId, name: pipelineId } : undefined;
 }
 
 export function StudioAccessNotice({ status, href }: { status: 401 | 403; href: string }) {
@@ -315,10 +332,18 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
   if (accessDenied) return <StudioAccessNotice status={accessDenied} href={window.location.href} />;
 
   const page = studioPage(route);
+  const recordedPipeline = (pipelineId: string) =>
+    pipelineFromHistory(
+      pipelineId,
+      snapshot,
+      data.snapshotPipelineId === pipelineId,
+      historyQuery.query
+    );
   const connection = connectionPresentation(connected);
   const entries = [...pipelines, ...nested];
   const pipeline = route.pipelineId
-    ? entries.find((entry) => entry.pipelineId === route.pipelineId)
+    ? (entries.find((entry) => entry.pipelineId === route.pipelineId) ??
+      recordedPipeline(route.pipelineId))
     : undefined;
   const detail = selection.status === "ready" ? selection.detail : undefined;
   const runPipelineId =
@@ -335,14 +360,23 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
   const runsInView = [...roots, ...(detail ? [...detail.ancestors, ...detail.children] : [])];
   const pipelineName = (pipelineId: string) =>
     entries.find((entry) => entry.pipelineId === pipelineId)?.name ?? pipelineId;
-  const openRun = (runId: string, stepId?: string) =>
+  const openRun = (runId: string, stepId?: string, pipelineId?: string) =>
     navigate({
-      pipelineId: scopeForRun(runId, route.pipelineId, roots, runsInView),
+      pipelineId: scopeForRun(
+        runId,
+        route.pipelineId,
+        roots,
+        pipelineId ? [{ runId, pipelineId }, ...runsInView] : runsInView
+      ),
       runId,
       stepId,
     });
   const pageUnavailable =
-    page === "pipeline" && commandsLoaded && snapshot !== null && pipeline === undefined;
+    page === "pipeline" &&
+    commandsLoaded &&
+    snapshot !== null &&
+    data.snapshotPipelineId === route.pipelineId &&
+    pipeline === undefined;
   const heading =
     page === "activity"
       ? { title: "Activity", lede: snapshot ? activitySummary(snapshot) : "Loading history…" }
@@ -554,7 +588,7 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
               nowMs={nowMs}
               onCancel={(id) => void cancelRun(id)}
               onCopyLink={(id) => void copyRunLink(id)}
-              onSelect={(runId) => openRun(runId)}
+              onSelect={(runId, pipelineId) => openRun(runId, undefined, pipelineId)}
               roots={roots}
               selection={selection}
               latestRunId={roots[0]?.runId}

@@ -972,6 +972,99 @@ describe("local pipeline run studio", () => {
     }
   });
 
+  it("summarizes pipelines and scopes history to one pipeline at any depth", async () => {
+    const stored: StoredPipelineEvent[] = [];
+    let clock = 0;
+    const run = (
+      pipelineId: string,
+      runId: string,
+      { parentRunId, status }: { parentRunId?: string; status?: "completed" | "cancelled" } = {}
+    ) => {
+      clock += 1;
+      stored.push(
+        storedEvent({
+          id: stored.length + 1,
+          version: 2,
+          name: "pipeline.started",
+          pipelineId,
+          runId,
+          parentRunId,
+          timestampMs: clock,
+        })
+      );
+      if (status)
+        stored.push(
+          storedEvent({
+            id: stored.length + 1,
+            version: 2,
+            name: "pipeline.completed",
+            pipelineId,
+            runId,
+            parentRunId,
+            durationMs: 1,
+            timestampMs: clock,
+            payload: { status },
+          })
+        );
+    };
+    for (let index = 0; index < 12; index += 1)
+      run("import", `import-${index}`, { status: index % 4 === 0 ? "cancelled" : "completed" });
+    run("enrich", "enrich-child-a", { parentRunId: "import-11", status: "completed" });
+    run("enrich", "enrich-child-b", { parentRunId: "import-11" });
+    run("import", "import-live");
+    const server = await startPipelineRunStudio({ port: 0, store: memoryStore(stored) });
+    servers.push(server);
+    const endpoint = `${server.url}/api/snapshot`;
+
+    const snapshot = await fetch(endpoint).then((response) => response.json());
+    expect(snapshot.pipelines).toEqual([
+      {
+        pipelineId: "import",
+        topLevelRunCount: 13,
+        nestedRunCount: 0,
+        runningCount: 1,
+        latestStartedAtMs: 15,
+        recent: [
+          { runId: "import-live", status: "running" },
+          ...[11, 10, 9, 8, 7, 6, 5, 4, 3].map((index) => ({
+            runId: `import-${index}`,
+            status: index % 4 === 0 ? "cancelled" : "completed",
+          })),
+        ],
+      },
+      {
+        pipelineId: "enrich",
+        topLevelRunCount: 0,
+        nestedRunCount: 2,
+        runningCount: 1,
+        latestStartedAtMs: 14,
+        recent: [
+          { runId: "enrich-child-b", status: "running" },
+          { runId: "enrich-child-a", status: "completed" },
+        ],
+      },
+    ]);
+
+    const nested = await fetch(endpoint + "?pipeline=enrich").then((response) => response.json());
+    expect(nested).toMatchObject({ matchingRootCount: 2, rootRunCount: 13 });
+    expect(nested.runs.map((entry: { runId: string }) => entry.runId)).toEqual([
+      "enrich-child-b",
+      "enrich-child-a",
+    ]);
+    const searched = await fetch(endpoint + "?pipeline=enrich&query=CHILD-A").then((response) =>
+      response.json()
+    );
+    expect(searched.runs.map((entry: { runId: string }) => entry.runId)).toEqual([
+      "enrich-child-a",
+    ]);
+    const scopedImport = await fetch(endpoint + "?pipeline=import").then((response) =>
+      response.json()
+    );
+    expect(scopedImport.runs[0].runId).toBe("import-live");
+    expect(scopedImport.matchingRootCount).toBe(13);
+    expect((await fetch(endpoint + "?pipeline=" + "x".repeat(4097))).status).toBe(400);
+  });
+
   it("pages compact roots, searches descendants and conditionally refreshes history", async () => {
     const stored: StoredPipelineEvent[] = [];
     const start = (runId: string, parentRunId?: string) =>

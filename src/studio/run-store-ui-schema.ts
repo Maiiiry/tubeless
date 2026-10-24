@@ -34,6 +34,10 @@ import {
 } from "../tracing/wire-schema.js";
 
 export const STUDIO_HISTORY_PAGE_SIZE = 50;
+/** Recent run outcomes kept per pipeline for the navigation rail. */
+export const STUDIO_PIPELINE_RECENT_RUNS = 10;
+/** Pipelines summarized in one snapshot, most recently active first. */
+export const STUDIO_PIPELINE_LIMIT = 1_000;
 /** Direct child runs returned for one parent step. Matches the graph's drawn cap. */
 export const STUDIO_CHILD_PAGE_SIZE = 16;
 
@@ -146,6 +150,17 @@ export const studioPlanSchema: WireSchema<PipelinePlan> = wireObject({
   ),
 });
 
+export const studioPipelineSummarySchema = wireObject({
+  pipelineId: id,
+  topLevelRunCount: count,
+  nestedRunCount: count,
+  runningCount: count,
+  latestStartedAtMs: number,
+  recent: wireArray(
+    wireObject({ runId: id, status: wireEnum(["running", "completed", "failed", "cancelled"]) }),
+    { maxItems: STUDIO_PIPELINE_RECENT_RUNS }
+  ),
+});
 export const studioSnapshotSchema = wireObject({
   activeRunCount: count,
   completedRunCount: count,
@@ -159,6 +174,7 @@ export const studioSnapshotSchema = wireObject({
   matchingRootCount: count,
   offset: count,
   definitions: wireArray(storedDefinitionSummarySchema),
+  pipelines: wireArray(studioPipelineSummarySchema, { maxItems: STUDIO_PIPELINE_LIMIT }),
   liveRunIds: wireArray(id),
   runs: wireArray(storedRunSummarySchema, { maxItems: STUDIO_HISTORY_PAGE_SIZE }),
   selectedRun: wireOptional(storedRunSummarySchema),
@@ -187,6 +203,7 @@ export const studioDefinitionRunsSchema = wireObject({
   runCount: count,
 });
 export type StudioSnapshot = InferWireSchema<typeof studioSnapshotSchema>;
+export type StudioPipelineSummary = InferWireSchema<typeof studioPipelineSummarySchema>;
 export type StudioChildStep = InferWireSchema<typeof studioChildStepSchema>;
 export type StudioRunDetail = InferWireSchema<typeof studioRunDetailSchema>;
 export type StudioChildRuns = InferWireSchema<typeof studioChildRunsSchema>;

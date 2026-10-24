@@ -2,6 +2,7 @@ import { decodeStoredTraceEvent } from "./run-store-event-decoder.js";
 import type { PipelineTraceEvent } from "../tracing/tracing.js";
 import type { PipelineRunEventQuery, StoredPipelineEvent } from "./run-store.js";
 
+/** SQLite `user_version` of `pipeline_run_events`. Bump only with a step in `run-store-migrate.ts`. */
 export const RUN_EVENT_STORE_VERSION = 4;
 
 /** One statement per entry so drivers that execute a single statement per call can apply them. */

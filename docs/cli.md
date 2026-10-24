@@ -346,6 +346,7 @@ or Studio. Optional Node helpers live in `tubeless/node`.
 | `tubeless graph`    | A pipeline or command export     | Writes Mermaid flowchart source                                     |
 | `tubeless run`      | A pipeline ID or command export  | Infers or validates command arguments and runs the pipeline         |
 | `tubeless history`  | An optional run id               | Lists or shows recorded runs from SQLite or a finished NDJSON trace |
+| `tubeless upgrade`  | An optional `--store` path       | Rewrites an older SQLite run store after `--yes`                    |
 | `tubeless ui`       | An optional project file         | Serves the local run studio; see [studio](./studio.md)              |
 | `tubeless init`     | A deploy target                  | Scaffolds deployment files; see [init](#init)                       |
 
@@ -633,7 +634,10 @@ included regardless of their pipeline IDs; `--events` remains scoped to the
 requested run only. Missing observations stay unknown, and missing terminal
 events stay recorded as running. See [agent history](./agents.md#inspection-and-recordings).
 A missing store exits `2`. A store also exits `2` with an error if it has a pending SQLite `-wal` or
-`-journal` file, has multiple hard links, or is not a supported run store. An unknown run id exits `1`. `tubeless run --store` flushes pending events at completion. A process crash
+`-journal` file, has multiple hard links, or is not a supported run store. Schema versions 1 through 4
+can be read. History reads an older store without writing. `tubeless run --store`, `tubeless ui`, and
+`tubeless history --clear` refuse to write until [`tubeless upgrade`](#upgrade) has moved the file to the
+current schema. An unknown run id exits `1`. `tubeless run --store` flushes pending events at completion. A process crash
 before a flush can lose up to 63 buffered events. See [storage behavior](./studio.md#storage-behavior)
 for programmatic writers and read-only access.
 NDJSON files are opened read-only and validated before their events are
@@ -651,6 +655,26 @@ bunx tubeless history --json <run-id>
 bunx tubeless history --events <run-id>
 bunx tubeless history --trace run.ndjson
 bunx tubeless history --clear --yes --store .tubeless/runs.sqlite
+```
+
+## Upgrade
+
+```
+tubeless upgrade [options]
+```
+
+Rewrite `.tubeless/runs.sqlite`, or the file passed to `--store`, to the current schema.
+`--yes` confirms the rewrite. There is no interactive prompt. Without `--yes` the command
+exits `1` and leaves the file unchanged. Versions 1 and 2 rebuild the event table in place,
+keep event ids and the saved autoincrement counter, and rename retired `PIPES_` error codes
+to `TUBELESS_`. Version 3 adds a column. The change commits once and cannot be undone.
+
+Run this before an unattended `tubeless run --store` or `tubeless ui`. Those commands refuse
+an older store instead of upgrading it while the job is running. A missing store exits `2`.
+A store that is already current exits `0` and does not rewrite it.
+
+```sh
+bunx tubeless upgrade --yes --store .tubeless/runs.sqlite
 ```
 
 ## Studio

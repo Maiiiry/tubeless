@@ -221,9 +221,21 @@ in one transaction. Compaction follows as best-effort maintenance. Once deletion
 commits, clearing succeeds even if compaction fails, so Studio discards the deleted
 history. A deletion failure rolls back and retains the history.
 
-New SQLite stores use schema version 4 to persist iteration relations. Version 3
-stores remain readable without modification; a writable open upgrades them
-transactionally while preserving existing events and append-only protection.
+New SQLite stores use schema version 4. `tubeless run --store`, `tubeless ui`,
+and `tubeless history --clear` refuse an older file instead of rewriting it.
+Run `tubeless upgrade --yes --store <path>` first, before an unattended job
+opens that file. The command requires `--yes` because the rewrite cannot be
+undone; there is no interactive prompt. Versions 1 and 2 still store scalar
+attributes in `attributes_json`. The upgrade copies each event into the current
+payload column, keeps its id and the saved autoincrement counter, and rewrites
+a retired `PIPES_` error code to the `TUBELESS_` prefix. Version 3 adds the
+iteration column. The upgrade commits once, so a failure leaves the previous
+schema and its append-only triggers in place. Read-only opens of versions 1
+through 3 decode those rows without writing. Any other schema version is
+refused. The next schema version needs a new step in
+`src/run-store/run-store-migrate.ts` in the same change as
+`RUN_EVENT_STORE_VERSION`. Creating or upgrading a store fails until that step
+exists.
 
 The SQLite writer buffers events in batches of 64. `export()` can return before
 an event reaches disk. Pending events become visible to other connections after

@@ -593,7 +593,9 @@ read when a pipeline needs them.
   keep receiving events.
 - Keep durable local observation opt-in. Use `tubeless run --store` for SQLite
   history and `tubeless run --trace` for portable NDJSON traces. Inspect them
-  with `tubeless history` or `tubeless ui`. Treat trace files as sensitive: logs,
+  with `tubeless history` or `tubeless ui`. An older SQLite store is not upgraded
+  on open. Run `tubeless upgrade --yes --store <path>` before an unattended job
+  writes to it. Treat trace files as sensitive: logs,
   errors, and event payloads are displayed as recorded, and malformed or oversized
   artifacts are rejected. `tubeless history` inspects a finished artifact and
   refuses a store with a live writer or multiple hard links. A crash can lose

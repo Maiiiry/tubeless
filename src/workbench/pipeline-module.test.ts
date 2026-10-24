@@ -289,6 +289,7 @@ describe("workbench module loading and help", () => {
     expect(topLevelIo.output.join("")).toContain("tubeless graph");
     expect(topLevelIo.output.join("")).toContain("tubeless run");
     expect(topLevelIo.output.join("")).toContain("tubeless history");
+    expect(topLevelIo.output.join("")).toContain("tubeless upgrade");
     expect(inspectIo.output.join("")).toContain("--json");
     expect(inspectIo.output.join("")).not.toContain("direction");
     expect(planIo.output.join("")).toContain("--target <id>");

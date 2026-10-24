@@ -1,6 +1,7 @@
 import { runGraph, runInspect, runList, runPlan, runValidate } from "./workbench-commands.js";
 import { runHistory } from "./workbench-history.js";
 import { runCommand } from "./workbench-run.js";
+import { runUpgrade } from "./workbench-upgrade.js";
 import {
   TUBELESS_WORKBENCH_EXIT_CODE,
   writeUsageError,
@@ -23,6 +24,7 @@ Commands:
   tubeless run       Execute a project pipeline or a pipeline or command file
   tubeless agent     Prompt a workspace agent with a live execution DAG
   tubeless history   Show recorded runs from the local SQLite store
+  tubeless upgrade   Rewrite an older SQLite run store before writing to it
   tubeless ui        Open the optional local run studio
   tubeless init      Scaffold a deployment (cloudflare)
   tubeless auth      Sign in to Tubeless Cloud
@@ -67,6 +69,7 @@ export async function runWorkbenchCli(
   if (command === "graph") return runGraph(commandArgs, io);
   if (command === "run") return runCommand(commandArgs, io);
   if (command === "history") return runHistory(commandArgs, io);
+  if (command === "upgrade") return runUpgrade(commandArgs, io);
   if (command === "ui") return runUi(commandArgs, io);
   return writeUsageError(io, `Unknown command ${JSON.stringify(command)}.`, WORKBENCH_USAGE);
 }

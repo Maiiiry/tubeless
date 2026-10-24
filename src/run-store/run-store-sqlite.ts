@@ -1,6 +1,16 @@
 import { lstat, mkdir, realpath, stat } from "node:fs/promises";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import { upgradeLegacyAttributeRow, type LegacyAttributeRow } from "./legacy-trace-event.js";
+import {
+  assertRunStoreMigrationConfigured,
+  readSqliteUserVersion,
+  runStoreColumnNames,
+  runStoreUpgradeRequired,
+  supportedRunStoreLayout,
+  unsupportedRunStoreSchema,
+  upgradeSqliteRunStore,
+} from "./run-store-migrate.js";
 import {
   RUN_EVENT_DROP_TRIGGER_STATEMENTS,
   RUN_EVENT_INSERT_SQL,
@@ -14,7 +24,11 @@ import {
   type RunEventRecord,
   type RunEventRow,
 } from "./run-store-sql.js";
-import type { PipelineRunEventQuery, PipelineRunEventStore } from "./run-store.js";
+import type {
+  PipelineRunEventQuery,
+  PipelineRunEventStore,
+  StoredPipelineEvent,
+} from "./run-store.js";
 
 interface SqliteStatement {
   all(...params: unknown[]): unknown[];
@@ -55,19 +69,14 @@ export interface SqlitePipelineRunStore extends PipelineRunEventStore {
   clearHistory(): void | Promise<void>;
 }
 
+function storedLegacyAttributeEvent(row: LegacyAttributeRow): StoredPipelineEvent {
+  return { ...upgradeLegacyAttributeRow(row), id: Number(row.id) };
+}
+
 function statement(database: SqliteDatabase, sql: string): SqliteStatement {
   const prepared = database.query?.(sql) ?? database.prepare?.(sql);
   if (!prepared) throw new Error("The current SQLite runtime does not support prepared queries.");
   return prepared;
-}
-
-function readStoreVersion(database: SqliteDatabase): number {
-  // SAFETY: `PRAGMA user_version` always returns a single row with a
-  // `user_version` column, so the first result row matches this shape.
-  const versionRow = statement(database, "PRAGMA user_version").all()[0] as
-    | { user_version?: number | bigint }
-    | undefined;
-  return Number(versionRow?.user_version ?? 0);
 }
 
 async function loadSqliteModule(): Promise<SqliteModule> {
@@ -221,12 +230,36 @@ export interface OpenSqlitePipelineRunStoreOptions {
 }
 
 /**
+ * Rewrite an existing SQLite run store to the current schema.
+ * This is the only writer of that upgrade. A writable open refuses an older file.
+ */
+export async function upgradeSqlitePipelineRunStore(
+  filename: string
+): Promise<{ from: number; to: number }> {
+  assertRunStoreMigrationConfigured();
+  const resolvedFilename = path.resolve(filename);
+  const database = await openDatabase(resolvedFilename, { create: false });
+  try {
+    const version = readSqliteUserVersion(database);
+    if (version === 0) throw new Error(`${resolvedFilename} is not a pipeline run store.`);
+    const columns = runStoreColumnNames(database);
+    if (!supportedRunStoreLayout(version, columns)) throw unsupportedRunStoreSchema(version);
+    if (version < RUN_EVENT_STORE_VERSION) upgradeSqliteRunStore(database);
+    return { from: version, to: RUN_EVENT_STORE_VERSION };
+  } finally {
+    database.close();
+  }
+}
+
+/**
  * Open the optional local SQLite trace store used by `tubeless run --store`,
  * `tubeless history`, and `tubeless ui`. The main executor never imports this
- * module. `export()` buffers up to 64 events and commits them in one
- * transaction, plus on `flush()`, same-instance `listEvents`/`clearHistory`,
- * and `close()`. Other connections cannot see the unflushed tail; a crash can
- * lose it. Finished `tubeless run --store` invocations flush at completion.
+ * module. An older schema is left unchanged: read-only opens decode it, and a
+ * writable open throws until `tubeless upgrade --yes` rewrites the file.
+ * `export()` buffers up to 64 events and commits them in one transaction, plus
+ * on `flush()`, same-instance `listEvents`/`clearHistory`, and `close()`.
+ * Other connections cannot see the unflushed tail; a crash can lose it.
+ * Finished `tubeless run --store` invocations flush at completion.
  */
 export async function openSqlitePipelineRunStore(
   filename: string,
@@ -246,23 +279,20 @@ export async function openSqlitePipelineRunStore(
     }
   }
   const database = await openDatabase(resolvedFilename, { create: initialize, readOnly });
+  let legacyAttributes = false;
   try {
-    const version = readStoreVersion(database);
-    if (version !== 0 && version !== 3 && version !== RUN_EVENT_STORE_VERSION) {
-      throw new Error(
-        `Unsupported pipeline run store schema version ${version}; expected ${RUN_EVENT_STORE_VERSION}.`
-      );
+    if (!readOnly) assertRunStoreMigrationConfigured();
+    const version = readSqliteUserVersion(database);
+    if (version !== 0) {
+      const columns = runStoreColumnNames(database);
+      if (!supportedRunStoreLayout(version, columns)) throw unsupportedRunStoreSchema(version);
+      if (readOnly) legacyAttributes = columns.has("attributes_json");
+      else if (version < RUN_EVENT_STORE_VERSION) {
+        throw runStoreUpgradeRequired(resolvedFilename, version);
+      }
     }
     if (!initialize && version === 0) {
       throw new Error(`${resolvedFilename} is not a pipeline run store.`);
-    }
-    if (!readOnly && version === 3) {
-      database.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE pipeline_run_events ADD COLUMN iteration_json TEXT;
-        PRAGMA user_version = ${RUN_EVENT_STORE_VERSION};
-        COMMIT;
-      `);
     }
     if (initialize) {
       database.exec(RUN_EVENT_STORE_SCHEMA);
@@ -317,13 +347,14 @@ export async function openSqlitePipelineRunStore(
         await sqliteAssertImmutableInspect(resolvedFilename);
       }
       const { sql, params } = runEventListQuery(query);
-      // SAFETY: The SELECT * columns match the RunEventRecord interface exactly
-      // (the table schema is owned by run-store-sql.ts), so each result row is one.
-      const rows = statement(database, sql).all(...params) as RunEventRecord[];
+      const rows = statement(database, sql).all(...params);
       if (readOnly && resolvedFilename !== ":memory:") {
         await sqliteAssertImmutableInspect(resolvedFilename);
       }
-      return rows.map(storedRunEvent);
+      if (legacyAttributes) return (rows as LegacyAttributeRow[]).map(storedLegacyAttributeEvent);
+      // SAFETY: The SELECT * columns match the RunEventRecord interface exactly
+      // (the table schema is owned by run-store-sql.ts), so each result row is one.
+      return (rows as RunEventRecord[]).map(storedRunEvent);
     },
     clearHistory() {
       if (closed) throw new Error("Cannot clear a closed pipeline run store.");

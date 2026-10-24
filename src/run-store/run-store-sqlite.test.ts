@@ -17,12 +17,81 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PipelineRunStudioEventState } from "../studio/run-store-ui-state.js";
-import { openSqlitePipelineRunStore } from "./run-store-sqlite.js";
+import { assertRunStoreMigrationConfigured } from "./run-store-migrate.js";
+import { openSqlitePipelineRunStore, upgradeSqlitePipelineRunStore } from "./run-store-sqlite.js";
 import { createSteps, definePipeline } from "../core/pipeline.js";
 import { createPipelineTestRuntime } from "../testing/testing.js";
 import { projectPipelineRunStore, type StoredPipelineEvent } from "./run-store.js";
 
 const directories: string[] = [];
+
+const LEGACY_ATTRIBUTE_STORE_SQL = `
+CREATE TABLE pipeline_run_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version INTEGER NOT NULL,
+  run_id TEXT NOT NULL,
+  parent_run_id TEXT,
+  pipeline_id TEXT NOT NULL,
+  step_id TEXT,
+  attempt_id TEXT,
+  item_key TEXT,
+  event_name TEXT NOT NULL,
+  timestamp_ms INTEGER NOT NULL,
+  duration_ms REAL,
+  attributes_json TEXT NOT NULL,
+  error_json TEXT
+);
+CREATE TRIGGER pipeline_run_events_no_update
+BEFORE UPDATE ON pipeline_run_events
+BEGIN
+  SELECT RAISE(ABORT, 'pipeline_run_events is append-only');
+END;
+CREATE TRIGGER pipeline_run_events_no_delete
+BEFORE DELETE ON pipeline_run_events
+BEGIN
+  SELECT RAISE(ABORT, 'pipeline_run_events is append-only');
+END;
+`;
+
+function insertLegacy(
+  database: DatabaseSync,
+  event: {
+    readonly attemptId?: string;
+    readonly attributes: unknown;
+    readonly correlationId?: string;
+    readonly durationMs?: number;
+    readonly error?: unknown;
+    readonly id: number;
+    readonly name: string;
+    readonly stepId?: string;
+    readonly timestampMs?: number;
+    readonly version?: number;
+  }
+): void {
+  const correlation = event.correlationId === undefined ? "" : ", correlation_id";
+  const correlationSlot = event.correlationId === undefined ? "" : ", ?";
+  const statement = database.prepare(
+    `INSERT INTO pipeline_run_events (
+      id, version, run_id, pipeline_id, step_id, attempt_id, event_name, timestamp_ms,
+      duration_ms, attributes_json, error_json${correlation}
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${correlationSlot})`
+  );
+  const params = [
+    event.id,
+    event.version ?? 1,
+    "run-1",
+    "import",
+    event.stepId ?? null,
+    event.attemptId ?? null,
+    event.name,
+    event.timestampMs ?? 10,
+    event.durationMs ?? null,
+    JSON.stringify(event.attributes),
+    event.error === undefined ? null : JSON.stringify(event.error),
+  ];
+  if (event.correlationId !== undefined) params.push(event.correlationId);
+  statement.run(...params);
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -205,7 +274,7 @@ describe("SQLite pipeline run store", () => {
   });
 
   it.each([true, false])(
-    "reads legacy stores without writing and migrates writable opens (initialize=%s)",
+    "reads schema version 3 without writing and appends after an explicit upgrade (initialize=%s)",
     async (initialize) => {
       const directory = await mkdtemp(path.join(tmpdir(), "tubeless-legacy-iteration-store-"));
       directories.push(directory);
@@ -237,6 +306,12 @@ describe("SQLite pipeline run store", () => {
         iteration,
         version: 3 as const,
       };
+      await expect(openSqlitePipelineRunStore(filename, { initialize })).rejects.toThrow(
+        "tubeless upgrade --yes"
+      );
+      expect(await readFile(filename)).toEqual(before);
+
+      await upgradeSqlitePipelineRunStore(filename);
       const writer = await openSqlitePipelineRunStore(filename, { initialize });
       try {
         await writer.export(child);
@@ -264,6 +339,13 @@ describe("SQLite pipeline run store", () => {
     }
   );
 
+  it("refuses to stamp a store when the schema version has no migration", () => {
+    expect(() => assertRunStoreMigrationConfigured(5, 4)).toThrow(
+      "Add a pipeline run store migration for schema version 5 before opening the store."
+    );
+    expect(() => assertRunStoreMigrationConfigured(4, 4)).not.toThrow();
+  });
+
   it.each([1, 2, 5])("refuses unsupported store schema version %i", async (storeVersion) => {
     const directory = await mkdtemp(path.join(tmpdir(), "tubeless-run-store-version-"));
     directories.push(directory);
@@ -275,6 +357,270 @@ describe("SQLite pipeline run store", () => {
     await expect(openSqlitePipelineRunStore(filename)).rejects.toThrow(
       `Unsupported pipeline run store schema version ${storeVersion}`
     );
+  });
+
+  it("refuses a current store whose version stamp does not match its columns", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tubeless-run-store-mismatched-version-"));
+    directories.push(directory);
+    const filename = path.join(directory, "runs.sqlite");
+    const store = await openSqlitePipelineRunStore(filename);
+    await store.export(startedEvent("run-1", 10));
+    await store.close();
+    const stamped = new DatabaseSync(filename);
+    stamped.exec("PRAGMA user_version = 1");
+    stamped.close();
+
+    await expect(openSqlitePipelineRunStore(filename)).rejects.toThrow(
+      "Unsupported pipeline run store schema version 1"
+    );
+    const unchanged = new DatabaseSync(filename);
+    try {
+      expect(unchanged.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 1 });
+      expect(unchanged.prepare("SELECT payload_json FROM pipeline_run_events").get()).toMatchObject(
+        {
+          payload_json: expect.any(String),
+        }
+      );
+    } finally {
+      unchanged.close();
+    }
+  });
+
+  it("reads schema version 1 without writing and upgrades a writable open", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tubeless-run-store-v1-"));
+    directories.push(directory);
+    const filename = path.join(directory, "runs.sqlite");
+    const database = new DatabaseSync(filename);
+    database.exec(LEGACY_ATTRIBUTE_STORE_SQL);
+    database.exec("PRAGMA user_version = 1");
+    insertLegacy(database, {
+      attributes: {
+        dry_run: false,
+        plan_ok: true,
+        step_count: 1,
+        target_ids: '["sync-schema"]',
+      },
+      id: 40,
+      name: "pipeline.started",
+    });
+    insertLegacy(database, {
+      attemptId: "attempt-1",
+      attributes: { status: "failed" },
+      durationMs: 4,
+      error: {
+        cause: { message: "bad xml", name: "Error" },
+        code: "PIPES_STEP_FAILED",
+        kind: "step",
+        message: "Invalid ThML XML",
+        phase: "execution",
+      },
+      id: 41,
+      name: "step.failed",
+      stepId: "inspect-source",
+    });
+    database.close();
+    const before = await readFile(filename);
+
+    const reader = await openSqlitePipelineRunStore(filename, { readOnly: true });
+    let legacyEvents: readonly StoredPipelineEvent[];
+    try {
+      legacyEvents = await reader.listEvents();
+      expect(() => reader.export(startedEvent("run-2", 11))).toThrow("read-only");
+    } finally {
+      await reader.close();
+    }
+    expect(await readFile(filename)).toEqual(before);
+    expect(legacyEvents).toEqual([
+      {
+        id: 40,
+        name: "pipeline.started",
+        payload: { dryRun: false, planOk: true, stepCount: 1, targetIds: ["sync-schema"] },
+        pipelineId: "import",
+        runId: "run-1",
+        timestampMs: 10,
+        version: 2,
+      },
+      expect.objectContaining({
+        error: expect.objectContaining({ code: "TUBELESS_STEP_FAILED" }),
+        id: 41,
+        name: "step.failed",
+        payload: { status: "failed" },
+        stepId: "inspect-source",
+      }),
+    ]);
+
+    await expect(openSqlitePipelineRunStore(filename)).rejects.toThrow("tubeless upgrade --yes");
+    expect(await readFile(filename)).toEqual(before);
+
+    await upgradeSqlitePipelineRunStore(filename);
+    const writer = await openSqlitePipelineRunStore(filename);
+    try {
+      expect(await writer.listEvents()).toEqual(legacyEvents);
+      expect(projectPipelineRunStore([...legacyEvents], 0).runs).toHaveLength(1);
+      await writer.export(startedEvent("run-2", 12));
+      expect((await writer.listEvents()).map((event) => event.id)).toEqual([40, 41, 42]);
+    } finally {
+      await writer.close();
+    }
+    const migrated = new DatabaseSync(filename);
+    try {
+      expect(migrated.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 4 });
+      expect(
+        migrated
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'pipeline_run_events_%' ORDER BY name"
+          )
+          .all()
+      ).toEqual([
+        { name: "pipeline_run_events_parent_run_id_idx" },
+        { name: "pipeline_run_events_pipeline_id_idx" },
+        { name: "pipeline_run_events_run_id_idx" },
+        { name: "pipeline_run_events_timestamp_idx" },
+      ]);
+      expect(() => migrated.exec("DELETE FROM pipeline_run_events")).toThrow("append-only");
+    } finally {
+      migrated.close();
+    }
+  });
+
+  it("upgrades a schema version 2 store that already has correlation ids", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tubeless-run-store-v2-"));
+    directories.push(directory);
+    const filename = path.join(directory, "runs.sqlite");
+    const database = new DatabaseSync(filename);
+    database.exec(LEGACY_ATTRIBUTE_STORE_SQL);
+    database.exec("ALTER TABLE pipeline_run_events ADD COLUMN correlation_id TEXT");
+    database.exec("PRAGMA user_version = 2");
+    insertLegacy(database, {
+      attributes: { dryRun: true, planOk: true, stepCount: 0, targetIds: [] },
+      correlationId: "job-1",
+      id: 1,
+      name: "pipeline.started",
+      version: 2,
+    });
+    database.close();
+
+    await upgradeSqlitePipelineRunStore(filename);
+    const store = await openSqlitePipelineRunStore(filename, { initialize: false });
+    try {
+      expect(await store.listEvents()).toEqual([
+        expect.objectContaining({ correlationId: "job-1", id: 1, version: 2 }),
+      ]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("keeps a saved id counter that is ahead of the copied rows", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tubeless-run-store-sequence-"));
+    directories.push(directory);
+    const filename = path.join(directory, "runs.sqlite");
+    const database = new DatabaseSync(filename);
+    database.exec(LEGACY_ATTRIBUTE_STORE_SQL);
+    database.exec("PRAGMA user_version = 1");
+    insertLegacy(database, {
+      attributes: { dry_run: false, plan_ok: true, step_count: 0, target_ids: "[]" },
+      id: 7,
+      name: "pipeline.started",
+    });
+    database.exec("UPDATE sqlite_sequence SET seq = 80 WHERE name = 'pipeline_run_events'");
+    expect(
+      database.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'pipeline_run_events'").get()
+    ).toMatchObject({ seq: 80 });
+    database.close();
+
+    await upgradeSqlitePipelineRunStore(filename);
+    const store = await openSqlitePipelineRunStore(filename, { initialize: false });
+    try {
+      await store.export(startedEvent("run-2", 12));
+      expect((await store.listEvents()).map((event) => event.id)).toEqual([7, 81]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("does not move the id counter backwards when it is behind the copied rows", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tubeless-run-store-sequence-behind-"));
+    directories.push(directory);
+    const filename = path.join(directory, "runs.sqlite");
+    const database = new DatabaseSync(filename);
+    database.exec(LEGACY_ATTRIBUTE_STORE_SQL);
+    database.exec("PRAGMA user_version = 1");
+    insertLegacy(database, {
+      attributes: { dry_run: false, plan_ok: true, step_count: 0, target_ids: "[]" },
+      id: 7,
+      name: "pipeline.started",
+    });
+    database.exec("UPDATE sqlite_sequence SET seq = 3 WHERE name = 'pipeline_run_events'");
+    database.close();
+
+    await upgradeSqlitePipelineRunStore(filename);
+    const store = await openSqlitePipelineRunStore(filename, { initialize: false });
+    try {
+      await store.export(startedEvent("run-2", 12));
+      expect((await store.listEvents()).map((event) => event.id)).toEqual([7, 8]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("keeps the id counter of a cleared older store", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tubeless-run-store-cleared-sequence-"));
+    directories.push(directory);
+    const filename = path.join(directory, "runs.sqlite");
+    const database = new DatabaseSync(filename);
+    database.exec(LEGACY_ATTRIBUTE_STORE_SQL);
+    database.exec("PRAGMA user_version = 1");
+    database.exec("INSERT INTO sqlite_sequence(name, seq) VALUES ('pipeline_run_events', 80)");
+    database.close();
+
+    await upgradeSqlitePipelineRunStore(filename);
+    const store = await openSqlitePipelineRunStore(filename, { initialize: false });
+    try {
+      await store.export(startedEvent("run-2", 12));
+      expect((await store.listEvents()).map((event) => event.id)).toEqual([81]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("rolls back an attribute upgrade without changing the stored schema", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tubeless-run-store-v1-rollback-"));
+    directories.push(directory);
+    const filename = path.join(directory, "runs.sqlite");
+    const database = new DatabaseSync(filename);
+    database.exec(LEGACY_ATTRIBUTE_STORE_SQL);
+    database.exec("PRAGMA user_version = 1");
+    insertLegacy(database, {
+      attributes: { dry_run: false, plan_ok: true, step_count: 0, target_ids: "[]" },
+      id: 1,
+      name: "pipeline.started",
+    });
+    insertLegacy(database, {
+      attributes: { status: "running" },
+      id: 2,
+      name: "pipeline.completed",
+    });
+    database.close();
+
+    await expect(upgradeSqlitePipelineRunStore(filename)).rejects.toThrow(
+      "Cannot upgrade pipeline run event 2 (pipeline.completed)"
+    );
+    const unchanged = new DatabaseSync(filename);
+    try {
+      expect(unchanged.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 1 });
+      expect(
+        unchanged.prepare("SELECT attributes_json FROM pipeline_run_events WHERE id = 1").get()
+      ).toBeTruthy();
+      expect(() => unchanged.exec("DELETE FROM pipeline_run_events")).toThrow("append-only");
+      expect(
+        unchanged
+          .prepare("SELECT name FROM sqlite_master WHERE name = 'pipeline_run_events_next'")
+          .get()
+      ).toBeUndefined();
+    } finally {
+      unchanged.close();
+    }
   });
 
   it("clears all history while preserving append-only protection", async () => {

@@ -9,9 +9,9 @@ import type { StoredPipelineRun } from "../run-store/run-store.js";
 import { StudioAccessNotice } from "./run-store-ui-client.js";
 import { CommandFields } from "./run-store-ui-launch.js";
 import { preferredScrollBehavior } from "./run-store-ui-common.js";
-import { PipelinesView, PlanView } from "./run-store-ui-pipelines.js";
-import type { StudioApi } from "./run-store-ui-client-transport.js";
-import { isoTime, RunsView, runOutcome } from "./run-store-ui-runs.js";
+import { PlanView } from "./run-store-ui-pipelines.js";
+import { Rail, railPipelines } from "./run-store-ui-rail.js";
+import { isoTime, NestedRuns, RunDetails, RunsView, runOutcome } from "./run-store-ui-runs.js";
 import { Status, skipExplanation } from "./run-store-ui-steps.js";
 import type { PipelineRunStudioCommand } from "./run-store-ui-protocol.js";
 
@@ -59,9 +59,20 @@ describe("Studio components", () => {
     expect(markup).toContain("required");
   });
 
-  it("escapes command data in the catalog", () => {
-    const markup = renderToString(<PipelinesView commands={[command]} onConfigure={() => {}} />);
-    expect(markup).toContain("A &lt;checked> pipeline");
+  it("escapes command data in the pipeline rail", () => {
+    const unsafe = { ...command, id: "unsafe", name: "Fixture <checked>" };
+    const { pipelines, nested } = railPipelines([unsafe], []);
+    const markup = renderToString(
+      <Rail
+        pipelines={pipelines}
+        nested={nested}
+        route={{}}
+        runningCount={0}
+        onNavigate={() => {}}
+        footer={null}
+      />
+    );
+    expect(markup).toContain("Fixture &lt;checked>");
     expect(markup).not.toContain("<checked>");
   });
 
@@ -172,34 +183,16 @@ describe("Studio components", () => {
     const summaries = index.childrenOf(root.runId).map((child) => summarizeRun(child, index));
     const window = pageDirectChildren(summaries, ["fan"], 0);
     const markup = renderToString(
-      <RunsView
-        api={
-          {
-            loadChildRuns: async () => ({ children: [], page: 1, childCount: 20 }),
-          } as unknown as StudioApi
-        }
-        canCancel={false}
-        cancelling={false}
-        liveRunIds={[]}
-        nowMs={3_000}
-        onCancel={() => {}}
-        onCopyLink={() => {}}
-        onSelect={() => {}}
-        roots={index.roots.map((entry) => summarizeRun(entry, index))}
-        selection={{
-          status: "ready",
-          runId: root.runId,
-          summary: summarizeRun(root, index),
-          detail: {
-            ...studioRunDetail(root),
-            children: window.children,
-            childCount: window.childCount,
-            childSteps: window.childSteps,
-            descendantCount: 20,
-          },
+      <NestedRuns
+        api={{ loadChildRuns: async () => ({ children: [], page: 1, childCount: 20 }) }}
+        detail={{
+          ...studioRunDetail(root),
+          children: window.children,
+          childCount: window.childCount,
+          childSteps: window.childSteps,
+          descendantCount: 20,
         }}
-        latestRunId={root.runId}
-        totalRunCount={21}
+        onSelect={() => {}}
       />
     );
     expect(markup.match(/class="nested-run"/g)).toHaveLength(16);
@@ -569,7 +562,7 @@ describe("run detail hierarchy", () => {
     const markup = renderDetail(failedRun);
     expect(markup).toContain("Failed at valid-prices · 2 skipped");
     expect(markup).toMatch(/Failed at<\/span><button type="button">valid-prices<\/button>/);
-    const order = ["Error diagnostics", "Step timeline", "run-definition"].map((marker) =>
+    const order = ["Error diagnostics", "run-tabs", "Step timeline"].map((marker) =>
       markup.indexOf(marker)
     );
     expect(order).toEqual([...order].sort((a, b) => a - b));
@@ -586,11 +579,14 @@ describe("run detail hierarchy", () => {
     expect(markup).not.toContain("Observed definitions");
   });
 
-  it("folds definition identity into a disclosure", () => {
+  it("keeps exact identifiers in the Details tab", () => {
     const markup = renderDetail(failedRun);
-    expect(markup).toContain('<details class="run-definition">');
-    expect(markup).toContain("<code>aaaaaaaaaaaa</code> · implementation v7");
-    expect(markup).toContain("sha256:" + "b".repeat(64));
+    expect(markup).toContain('aria-selected="false">Details</button>');
+    expect(markup).not.toContain("Structural fingerprint");
+    const details = renderToString(<RunDetails run={failedRun} />);
+    expect(details).toContain("sha256:" + "a".repeat(64));
+    expect(details).toContain("sha256:" + "b".repeat(64));
+    expect(details).toContain("v7");
   });
 
   it.each([

@@ -101,6 +101,31 @@ describe("StudioDataController", () => {
     expect(instance.getState().selection).toEqual({ status: "unavailable", runId: "missing" });
   });
 
+  it("keeps the pipeline scope while selecting runs and clearing history", async () => {
+    const service = api({});
+    const instance = new StudioDataController(service, { pipelineId: "import", detailRetryMs: 50 });
+    controllers.push(instance);
+    instance.refresh();
+    await settle();
+    expect(service.loadSnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pipelineId: "import", query: "", offset: 0 })
+    );
+    instance.setHistoryQuery({ pipelineId: "import", query: "child", offset: 0 });
+    instance.selectRun("off-page");
+    expect(instance.getState().historyQuery).toEqual({
+      pipelineId: "import",
+      query: "",
+      offset: 0,
+    });
+    instance.invalidate({ resetHistory: true });
+    expect(instance.getState().historyQuery.pipelineId).toBe("import");
+    instance.setHistoryQuery({});
+    await settle();
+    expect(service.loadSnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pipelineId: undefined })
+    );
+  });
+
   it("retires a slow history page when the query changes", async () => {
     const requests = [deferred<StudioSnapshot>(), deferred<StudioSnapshot>()];
     const loadSnapshot = vi

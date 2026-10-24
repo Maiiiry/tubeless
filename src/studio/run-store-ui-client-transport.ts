@@ -19,7 +19,6 @@ import {
   type StudioDefinitionRuns,
 } from "./run-store-ui-schema.js";
 export type {
-  StudioPipelineSummary,
   StudioSnapshot,
   StudioRunDetail,
   StudioChildRuns,

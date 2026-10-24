@@ -143,9 +143,12 @@ interface StepRowProps {
   step: StoredPipelineStep;
   /** Sibling steps from the same run, used to name the input behind a skip. */
   steps?: readonly StoredPipelineStep[];
+  selected?: boolean;
+  /** Makes the row selectable; the step name is the keyboard target. */
+  onSelect?(): void;
 }
 
-export function StepRow({ step, steps = [] }: StepRowProps) {
+export function StepRow({ step, steps = [], selected = false, onSelect }: StepRowProps) {
   const progressTotal = step.progress?.total;
   const progressWidth = progressTotal
     ? Math.max(0, Math.min(100, ((step.progress?.completed ?? 0) / progressTotal) * 100))
@@ -162,10 +165,30 @@ export function StepRow({ step, steps = [] }: StepRowProps) {
   const retries = step.attempt?.retries.length ?? 0;
   const skipped = skipExplanation(step, steps);
   return (
-    <article class={`step ${step.status}`} data-step-id={step.id}>
+    <article
+      class={`step ${step.status}${onSelect ? " selectable" : ""}${selected ? " selected" : ""}`}
+      data-step-id={step.id}
+      onClick={
+        onSelect &&
+        ((event) => {
+          // Controls inside the row, such as artifact filters, keep their own clicks.
+          if (
+            !(event.target instanceof Element) ||
+            !event.target.closest("button, select, summary, a")
+          )
+            onSelect();
+        })
+      }
+    >
       <StepStatusIcon value={step.status} />
       <div class="step-head">
-        <strong>{step.name || step.id}</strong>
+        {onSelect ? (
+          <button class="step-title" type="button" aria-pressed={selected} onClick={onSelect}>
+            {step.name || step.id}
+          </button>
+        ) : (
+          <strong>{step.name || step.id}</strong>
+        )}
         {step.outputSource && <Status value={step.status} outputSource={step.outputSource} />}
         {step.name && <code>{step.id}</code>}
         {retries > 0 && (

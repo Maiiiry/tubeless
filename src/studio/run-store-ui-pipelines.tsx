@@ -6,51 +6,6 @@ import type {
   PipelineStepSelectionReason,
   PipelineStepSkipReason,
 } from "../core/pipeline.js";
-import type { PipelineRunStudioCommand } from "./run-store-ui-protocol.js";
-import { EmptyView, commandDescription } from "./run-store-ui-common.js";
-
-export function PipelinesView({
-  commands,
-  onConfigure,
-}: {
-  commands: readonly PipelineRunStudioCommand[];
-  onConfigure(id: string): void;
-}) {
-  if (!commands.length) {
-    return (
-      <div class="sheet">
-        <EmptyView
-          title="No pipelines found"
-          copy="Try a different pipeline name or description."
-        />
-      </div>
-    );
-  }
-  return (
-    <section class="sheet">
-      <div class="sheet-head">
-        <div>
-          <div class="sheet-title">Available pipelines</div>
-          <div class="sheet-subtitle">Available in this Studio session</div>
-        </div>
-        <span class="sheet-subtitle">{commands.length} shown</span>
-      </div>
-      <div class="catalog">
-        {commands.map((command) => (
-          <article class="catalog-card" key={command.id}>
-            <h3>{command.name}</h3>
-            <p>{commandDescription(command)}</p>
-            <div class="catalog-actions">
-              <button class="primary-button" onClick={() => onConfigure(command.id)}>
-                Configure
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 function selectionReasonText(reason: PipelineStepSelectionReason): string {
   switch (reason.kind) {

@@ -209,7 +209,7 @@ describe("local pipeline run studio", () => {
     expect(html).not.toContain('data-view="active"');
     expect(html).not.toContain('data-view="definitions"');
     expect(html).toContain("Run pipeline");
-    expect(html).toContain("Available pipelines");
+    expect(html).toContain("Nested pipelines");
     expect(html).toContain("Preview plan");
     expect(html).toContain("Pipeline inputs");
     expect(html).toContain("Execution controls");

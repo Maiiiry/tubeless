@@ -143,6 +143,34 @@ function clock(timestampMs: number): string {
   }).format(timestampMs);
 }
 
+/** Log entries in order; step IDs are omitted when every entry belongs to one step. */
+export function LogLines({
+  logs,
+  showStep = true,
+}: {
+  logs: readonly StoredPipelineLog[];
+  showStep?: boolean;
+}) {
+  return (
+    <div class="logs">
+      {logs.map((log) => (
+        <div class="log-line" key={log.id}>
+          <time class="log-time">{clock(log.timestampMs)}</time>
+          <span class={`log-level ${log.level}`}>{log.level}</span>
+          <span class="log-message">
+            {showStep && log.stepId && (
+              <>
+                <b>{log.stepId}</b> ·{" "}
+              </>
+            )}
+            {log.message}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function RunLogs({ logs }: { logs: readonly StoredPipelineLog[] }) {
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState<LogLevel>("all");
@@ -198,22 +226,7 @@ export function RunLogs({ logs }: { logs: readonly StoredPipelineLog[] }) {
         </label>
       </div>
       {visibleLogs.length ? (
-        <div class="logs">
-          {visibleLogs.map((log) => (
-            <div class="log-line" key={log.id}>
-              <time class="log-time">{clock(log.timestampMs)}</time>
-              <span class={`log-level ${log.level}`}>{log.level}</span>
-              <span class="log-message">
-                {log.stepId && (
-                  <>
-                    <b>{log.stepId}</b> ·{" "}
-                  </>
-                )}
-                {log.message}
-              </span>
-            </div>
-          ))}
-        </div>
+        <LogLines logs={visibleLogs} />
       ) : (
         <div class="log-empty">No logs match these filters.</div>
       )}

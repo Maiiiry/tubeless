@@ -147,6 +147,8 @@ interface PipelinePageProps {
   tab?: StudioPipelineTab;
   onTab(tab: StudioPipelineTab | undefined): void;
   runs: readonly StoredRunSummary[];
+  /** The run list still shows another scope while this pipeline's history loads. */
+  listLoading?: boolean;
   matchingRunCount: number;
   offset: number;
   onPage(offset: number): void;
@@ -161,6 +163,7 @@ export function PipelinePage({
   tab,
   onTab,
   runs,
+  listLoading = false,
   matchingRunCount,
   offset,
   onPage,
@@ -206,12 +209,16 @@ export function PipelinePage({
               : "Newest first · running runs on top"
           }
           count={`${matchingRunCount} shown`}
-          empty={{
-            title: "No recorded runs",
-            copy: pipeline.command
-              ? "Choose Run to start this pipeline and record its history."
-              : "No runs of this pipeline match.",
-          }}
+          empty={
+            listLoading
+              ? { title: "Loading runs", copy: "Loading this list." }
+              : {
+                  title: "No recorded runs",
+                  copy: pipeline.command
+                    ? "Choose Run to start this pipeline and record its history."
+                    : "No runs of this pipeline match.",
+                }
+          }
           matchingCount={matchingRunCount}
           offset={offset}
           onPage={onPage}

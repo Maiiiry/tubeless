@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PipelineRunEventStore, StoredPipelineEvent } from "../run-store/run-store.js";
-import { STUDIO_OPEN_RUN_LIMIT } from "./run-store-ui-state.js";
+import type { StoredRunSummary } from "../run-store/run-history.js";
+import { STUDIO_OPEN_RUN_LIMIT, summarizePipelines } from "./run-store-ui-state.js";
 import { decodePipelineTraceEvent } from "../tracing/tracing-codec.js";
 import type { PipelineTraceEvent } from "../tracing/tracing.js";
 import { PIPELINE_RUN_STUDIO_STYLE } from "./run-store-ui-page.js";
@@ -1063,6 +1064,26 @@ describe("local pipeline run studio", () => {
     expect(scopedImport.runs[0].runId).toBe("import-live");
     expect(scopedImport.matchingRootCount).toBe(13);
     expect((await fetch(endpoint + "?pipeline=" + "x".repeat(4097))).status).toBe(400);
+  });
+
+  it("summarizes a pipeline with more runs than the call stack allows arguments", () => {
+    const runs = Array.from({ length: 200_000 }, (_, index): StoredRunSummary => ({
+      runId: `run-${index}`,
+      rootRunId: `run-${index}`,
+      pipelineId: "busy",
+      startedAtMs: index,
+      status: "completed",
+      dryRun: false,
+      eventCount: 2,
+      subtreeEventCount: 2,
+      stepCount: 0,
+      descendantCount: 0,
+      subtreeIsRunning: false,
+      activity: { count: 0, names: [] },
+    }));
+    const [busy] = summarizePipelines(runs);
+    expect(busy).toMatchObject({ topLevelRunCount: 200_000, latestStartedAtMs: 199_999 });
+    expect(busy!.recent).toHaveLength(10);
   });
 
   it("pages compact roots, searches descendants and conditionally refreshes history", async () => {

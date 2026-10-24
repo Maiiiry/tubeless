@@ -358,7 +358,11 @@ export function summarizePipelines(summaries: Iterable<StoredRunSummary>): Studi
         topLevelRunCount: topLevel.length,
         nestedRunCount: nested.length,
         runningCount: all.filter((run) => run.status === "running").length,
-        latestStartedAtMs: Math.max(...all.map((run) => run.startedAtMs)),
+        // A loop rather than Math.max(...): spreading every run can exceed the call stack.
+        latestStartedAtMs: all.reduce(
+          (latest, run) => Math.max(latest, run.startedAtMs),
+          -Infinity
+        ),
         recent,
       };
     })

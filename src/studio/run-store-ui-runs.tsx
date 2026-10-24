@@ -745,6 +745,8 @@ interface RunsViewProps extends RunDetailProps {
   roots: readonly StoredRunSummary[];
   /** Pipeline whose runs the list shows; absent for all top-level runs. */
   pipelineId?: string;
+  /** The run list still shows another scope while this one loads. */
+  listLoading?: boolean;
   pipelineName?(pipelineId: string): string;
   matchingRootCount?: number;
   offset?: number;
@@ -785,10 +787,14 @@ export function RunsView(props: RunsViewProps) {
             ? plural(matching, "run")
             : `${matching} top-level · ${props.totalRunCount} total`
         }
-        empty={{
-          title: "No recorded runs",
-          copy: "Start a run from a pipeline page to create local history.",
-        }}
+        empty={
+          props.listLoading
+            ? { title: "Loading runs", copy: "Loading this list." }
+            : {
+                title: "No recorded runs",
+                copy: "Start a run from a pipeline page to create local history.",
+              }
+        }
         matchingCount={matching}
         offset={props.offset}
         onPage={props.onPage}

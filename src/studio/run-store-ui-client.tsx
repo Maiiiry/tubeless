@@ -147,6 +147,21 @@ export function activitySummary(
   return parts.join(" · ");
 }
 
+/**
+ * List scope for opening a run: keep the current scope, including all pipelines, when
+ * the list shows the run; otherwise scope to the run's own pipeline when it is known.
+ */
+export function scopeForRun(
+  runId: string,
+  currentScope: string | undefined,
+  listed: readonly { runId: string }[],
+  known: readonly { runId: string; pipelineId: string }[]
+): string | undefined {
+  return listed.some((run) => run.runId === runId)
+    ? currentScope
+    : known.find((run) => run.runId === runId)?.pipelineId;
+}
+
 export function StudioAccessNotice({ status, href }: { status: 401 | 403; href: string }) {
   return (
     <main class="workspace">
@@ -311,18 +326,21 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
     (selection.status === "loading" ? selection.summary?.pipelineId : undefined);
   const runPipeline = entries.find((entry) => entry.pipelineId === runPipelineId);
   const launchTarget = (page === "run" ? runPipeline : pipeline)?.command;
-  const roots = snapshot?.runs ?? [];
+  // Until a read for the new scope lands, show no runs rather than another scope's list.
+  const listCurrent = data.snapshotPipelineId === route.pipelineId;
+  const roots = (listCurrent && snapshot?.runs) || [];
+  const matchingRuns = listCurrent ? (snapshot?.matchingRootCount ?? 0) : 0;
+  const listEmpty = (empty: { title: string; copy: string }) =>
+    listCurrent ? empty : { title: "Loading runs", copy: "Loading this list." };
   const runsInView = [...roots, ...(detail ? [...detail.ancestors, ...detail.children] : [])];
   const pipelineName = (pipelineId: string) =>
     entries.find((entry) => entry.pipelineId === pipelineId)?.name ?? pipelineId;
-  /** Keep a run's list scoped to its own pipeline when that is already the scope or known. */
-  const openRun = (runId: string, stepId?: string) => {
-    const pipelineId =
-      route.pipelineId && roots.some((run) => run.runId === runId)
-        ? route.pipelineId
-        : runsInView.find((run) => run.runId === runId)?.pipelineId;
-    navigate({ pipelineId, runId, stepId });
-  };
+  const openRun = (runId: string, stepId?: string) =>
+    navigate({
+      pipelineId: scopeForRun(runId, route.pipelineId, roots, runsInView),
+      runId,
+      stepId,
+    });
   const pageUnavailable =
     page === "pipeline" && commandsLoaded && snapshot !== null && pipeline === undefined;
   const heading =
@@ -476,14 +494,14 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
               pipelineName={pipelineName}
               title="Recent runs"
               subtitle="Top-level runs · nested work stays with its parent"
-              count={`${snapshot.matchingRootCount} top-level · ${snapshot.runCount} total`}
-              empty={{
+              count={`${matchingRuns} top-level · ${snapshot.runCount} total`}
+              empty={listEmpty({
                 title: "No recorded runs",
                 copy: commands.length
                   ? "Open a pipeline in the sidebar and choose Run to record its history."
                   : "Record a run with --store, then open it here.",
-              }}
-              matchingCount={snapshot.matchingRootCount}
+              })}
+              matchingCount={matchingRuns}
               offset={snapshot.offset}
               onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
             />
@@ -495,7 +513,8 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
               tab={route.tab}
               onTab={(tab) => navigate({ pipelineId: pipeline.pipelineId, tab }, { replace: true })}
               runs={roots}
-              matchingRunCount={snapshot.matchingRootCount}
+              listLoading={!listCurrent}
+              matchingRunCount={matchingRuns}
               offset={snapshot.offset}
               onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
               nowMs={nowMs}
@@ -525,8 +544,9 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
               api={api}
               pipelineId={route.pipelineId}
               pipelineName={pipelineName}
+              listLoading={!listCurrent}
               offset={snapshot.offset}
-              matchingRootCount={snapshot.matchingRootCount}
+              matchingRootCount={matchingRuns}
               onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
               canCancel={canCancel}
               cancelling={cancelling}

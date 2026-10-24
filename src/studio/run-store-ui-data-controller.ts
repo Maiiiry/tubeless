@@ -20,6 +20,8 @@ export interface StudioDataState {
   selection: StudioRunSelection;
   manualRefreshing: boolean;
   snapshot: StudioSnapshot | null;
+  /** Pipeline scope that produced `snapshot.runs`; it lags `historyQuery` until a read lands. */
+  snapshotPipelineId?: string;
 }
 
 export interface StudioDataInvalidation {
@@ -223,7 +225,7 @@ export class StudioDataController {
     );
   }
 
-  #acceptSnapshot(snapshot: StudioSnapshot): void {
+  #acceptSnapshot(snapshot: StudioSnapshot, snapshotPipelineId: string | undefined): void {
     let selection = this.#state.selection;
     const runId = this.#selectedRunId();
     if (runId) {
@@ -236,26 +238,27 @@ export class StudioDataController {
             : { status: "loading", runId, summary };
         const changed = nextFingerprint !== this.#detailFingerprint;
         this.#detailFingerprint = nextFingerprint;
-        this.#update({ connected: true, snapshot, selection });
+        this.#update({ connected: true, snapshot, snapshotPipelineId, selection });
         if (changed) this.#loadDetail(this.#detailSelectionVersion);
         return;
       }
       this.#retireDetail();
       selection = { status: "unavailable", runId };
     }
-    this.#update({ connected: true, snapshot, selection });
+    this.#update({ connected: true, snapshot, snapshotPipelineId, selection });
   }
 
   #startSnapshotRefresh(): void {
     if (this.#disposed || this.#state.accessDenied) return;
     this.#snapshotRefreshActive = true;
     const epoch = this.#snapshotEpoch;
+    const query = this.#state.historyQuery;
     this.#manualRefreshPending = false;
     void this.#api
-      .loadSnapshot({ ...this.#state.historyQuery, selectedRunId: this.#selectedRunId() })
+      .loadSnapshot({ ...query, selectedRunId: this.#selectedRunId() })
       .then((snapshot) => {
         if (this.#disposed || this.#state.accessDenied || epoch !== this.#snapshotEpoch) return;
-        this.#acceptSnapshot(snapshot);
+        this.#acceptSnapshot(snapshot, query.pipelineId);
       })
       .catch(() => {
         if (this.#disposed || this.#state.accessDenied || epoch !== this.#snapshotEpoch) return;

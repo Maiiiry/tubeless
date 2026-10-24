@@ -110,6 +110,7 @@ describe("StudioDataController", () => {
     expect(service.loadSnapshot).toHaveBeenLastCalledWith(
       expect.objectContaining({ pipelineId: "import", query: "", offset: 0 })
     );
+    expect(instance.getState().snapshotPipelineId).toBe("import");
     instance.setHistoryQuery({ pipelineId: "import", query: "child", offset: 0 });
     instance.selectRun("off-page");
     expect(instance.getState().historyQuery).toEqual({
@@ -120,10 +121,13 @@ describe("StudioDataController", () => {
     instance.invalidate({ resetHistory: true });
     expect(instance.getState().historyQuery.pipelineId).toBe("import");
     instance.setHistoryQuery({});
+    expect(instance.getState().snapshotPipelineId).toBe("import");
     await settle();
     expect(service.loadSnapshot).toHaveBeenLastCalledWith(
       expect.objectContaining({ pipelineId: undefined })
     );
+    await settle();
+    expect(instance.getState().snapshotPipelineId).toBeUndefined();
   });
 
   it("retires a slow history page when the query changes", async () => {

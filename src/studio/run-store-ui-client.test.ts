@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { activitySummary, studioRunUrl } from "./run-store-ui-client.js";
+import { activitySummary, scopeForRun, studioRunUrl } from "./run-store-ui-client.js";
 import { parseStudioRoute } from "./run-store-ui-route.js";
 
 it("builds stable run links without list scope, step, or tab", () => {
@@ -15,4 +15,16 @@ it("summarizes activity without inventing a success rate", () => {
   expect(
     activitySummary({ activeRunCount: 2, completedRunCount: 9, failedRunCount: 4, runCount: 1 })
   ).toBe("2 running · 1 recorded run · 69% succeeded");
+});
+
+it("keeps the list scope for listed runs and follows unlisted runs to their pipeline", () => {
+  const listed = [{ runId: "a" }, { runId: "b" }];
+  const known = [
+    { runId: "b", pipelineId: "enrich" },
+    { runId: "child", pipelineId: "read-page" },
+  ];
+  expect(scopeForRun("b", undefined, listed, known)).toBeUndefined();
+  expect(scopeForRun("b", "import", listed, known)).toBe("import");
+  expect(scopeForRun("child", undefined, listed, known)).toBe("read-page");
+  expect(scopeForRun("missing", "import", listed, known)).toBeUndefined();
 });

@@ -9,42 +9,16 @@ import {
 import { StudioDataController } from "./run-store-ui-data-controller.js";
 import type { PipelineRunStudioCommand } from "./run-store-ui-protocol.js";
 import { commandDescription, errorMessage } from "./run-store-ui-common.js";
-import { PipelinesView } from "./run-store-ui-pipelines.js";
-import { RunsView } from "./run-store-ui-runs.js";
+import { RunCrumbs, RunList, RunsView } from "./run-store-ui-runs.js";
 import { LaunchModal } from "./run-store-ui-launch.js";
-import { DefinitionHistory } from "./run-store-ui-definitions.js";
-
-function Metrics({ commandCount, snapshot }: { commandCount: number; snapshot: StudioSnapshot }) {
-  const terminal = snapshot.completedRunCount + snapshot.failedRunCount;
-  const success = terminal ? Math.round((snapshot.completedRunCount / terminal) * 100) : 0;
-  const pipelineCount =
-    commandCount || new Set(snapshot.definitions.map(({ pipelineId }) => pipelineId)).size;
-  const metrics = [
-    [
-      "Active now",
-      snapshot.activeRunCount,
-      snapshot.activeRunCount ? "Live execution in progress" : "No work in flight",
-    ],
-    ["Recorded runs", snapshot.runCount, "Append-only local history"],
-    ["Success rate", success + "%", terminal + " terminal runs"],
-    [
-      "Pipelines",
-      pipelineCount,
-      commandCount ? "Available to configure" : "Observed in run history",
-    ],
-  ];
-  return (
-    <>
-      {metrics.map(([label, value, note]) => (
-        <article class="metric" key={label}>
-          <div class="metric-label">{label}</div>
-          <div class="metric-value">{value}</div>
-          <div class="metric-note">{note}</div>
-        </article>
-      ))}
-    </>
-  );
-}
+import { PipelinePage } from "./run-store-ui-pipeline.js";
+import { latestStatus, Rail, railPipelines, type RailPipeline } from "./run-store-ui-rail.js";
+import {
+  parseStudioRoute,
+  studioPage,
+  studioRouteUrl,
+  type StudioRoute,
+} from "./run-store-ui-route.js";
 
 interface ClearHistoryModalProps {
   api: StudioApi;
@@ -136,17 +110,6 @@ function ClearHistoryModal({ api, onCleared, onClose, snapshot }: ClearHistoryMo
   );
 }
 
-export type StudioView = "pipelines" | "runs" | "definitions";
-
-const viewHeadings: Record<StudioView, { title: string; lede: string }> = {
-  pipelines: { title: "Pipelines", lede: "Choose a declared workflow to configure and run." },
-  runs: { title: "Runs", lede: "Live work and durable history in one place." },
-  definitions: {
-    title: "Definitions",
-    lede: "Recorded pipeline versions, their runs, and what changed between them.",
-  },
-};
-
 const studioMount =
   typeof document === "undefined"
     ? ""
@@ -162,29 +125,58 @@ export function connectionPresentation(connected: boolean) {
   };
 }
 
-export function runIdFromStudioUrl(href: string): string | null {
-  return new URL(href).searchParams.get("run") || null;
-}
-
+/** A stable link to one run: no list scope, step, or tab. */
 export function studioRunUrl(href: string, runId: string): string {
-  const url = new URL(href);
-  url.searchParams.set("run", runId);
-  return url.href;
+  return studioRouteUrl(href, { runId });
 }
 
-/** Leave the Definitions view once a loaded history has none, e.g. after Clear history. */
-export function resolveStudioView(
-  view: StudioView,
-  snapshot: { readonly definitions: readonly unknown[] } | null | undefined
-): StudioView {
-  return view === "definitions" && snapshot && snapshot.definitions.length === 0 ? "runs" : view;
+/** Activity headline: work in flight, recorded runs, and the share that succeeded. */
+export function activitySummary(
+  snapshot: Pick<
+    StudioSnapshot,
+    "activeRunCount" | "completedRunCount" | "failedRunCount" | "runCount"
+  >
+): string {
+  const terminal = snapshot.completedRunCount + snapshot.failedRunCount;
+  const parts = [
+    `${snapshot.activeRunCount} running`,
+    `${snapshot.runCount} recorded run${snapshot.runCount === 1 ? "" : "s"}`,
+  ];
+  if (terminal)
+    parts.push(`${Math.round((snapshot.completedRunCount / terminal) * 100)}% succeeded`);
+  return parts.join(" · ");
 }
 
-export function resolveSelectedRunId(
-  selectedRunId: string | null,
-  roots: readonly { runId: string }[]
-): string | null {
-  return selectedRunId ?? roots[0]?.runId ?? null;
+/**
+ * List scope for opening a run: keep the current scope, including all pipelines, when
+ * the list shows the run; otherwise scope to the run's own pipeline when it is known.
+ */
+export function scopeForRun(
+  runId: string,
+  currentScope: string | undefined,
+  listed: readonly { runId: string }[],
+  known: readonly { runId: string; pipelineId: string }[]
+): string | undefined {
+  return listed.some((run) => run.runId === runId)
+    ? currentScope
+    : known.find((run) => run.runId === runId)?.pipelineId;
+}
+
+/**
+ * The sidebar summarizes at most STUDIO_PIPELINE_LIMIT pipelines. An older one still
+ * exists when a definition names it or its own scoped history read finds runs; while
+ * a search is active, an empty result does not prove the pipeline is gone.
+ */
+export function pipelineFromHistory(
+  pipelineId: string,
+  snapshot: Pick<StudioSnapshot, "definitions" | "matchingRootCount"> | null,
+  scopedRead: boolean,
+  query: string
+): RailPipeline | undefined {
+  const recorded =
+    snapshot?.definitions.some((definition) => definition.pipelineId === pipelineId) ||
+    (scopedRead && ((snapshot?.matchingRootCount ?? 0) > 0 || query !== ""));
+  return recorded ? { pipelineId, name: pipelineId } : undefined;
 }
 
 export function StudioAccessNotice({ status, href }: { status: 401 | 403; href: string }) {
@@ -204,18 +196,20 @@ export function StudioAccessNotice({ status, href }: { status: 401 | 403; href: 
 }
 
 function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
+  const initialRoute = useMemo(() => parseStudioRoute(window.location.href), []);
   const dataController = useMemo(
-    () => new StudioDataController(api, { runId: runIdFromStudioUrl(window.location.href) }),
-    [api]
+    () =>
+      new StudioDataController(api, {
+        runId: initialRoute.runId ?? null,
+        pipelineId: initialRoute.pipelineId,
+      }),
+    [api, initialRoute]
   );
+  const [route, setRoute] = useState<StudioRoute>(initialRoute);
   const [data, setData] = useState(() => dataController.getState());
   const { accessDenied, connected, historyQuery, selection, manualRefreshing, snapshot } = data;
-  const selectedRunId = selection.status === "none" ? null : selection.runId;
   const [commands, setCommands] = useState<PipelineRunStudioCommand[]>([]);
   const [commandsLoaded, setCommandsLoaded] = useState(false);
-  const [view, setView] = useState<StudioView>("runs");
-  const [commandQuery, setCommandQuery] = useState("");
-  const query = view === "runs" ? historyQuery.query : commandQuery;
   const [canCancel, setCanCancel] = useState(false);
   const [canClearHistory, setCanClearHistory] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -244,9 +238,7 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
     void api
       .loadCommands()
       .then((loaded) => {
-        if (dataController.getState().accessDenied) return;
-        setCommands(loaded);
-        if (loaded.length && !runIdFromStudioUrl(window.location.href)) setView("pipelines");
+        if (!dataController.getState().accessDenied) setCommands(loaded);
       })
       .catch((error) => {
         if (!dataController.getState().accessDenied) setToast(errorMessage(error));
@@ -272,12 +264,21 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
     return () => clearInterval(interval);
   }, [accessDenied, api, dataController]);
 
+  /** Point history at the route's scope, then select its run. */
+  const applyRoute = (next: StudioRoute) => {
+    const current = dataController.getState().historyQuery;
+    const sameScope = current.pipelineId === next.pipelineId;
+    dataController.setHistoryQuery({
+      pipelineId: next.pipelineId,
+      query: sameScope ? current.query : "",
+      offset: sameScope ? current.offset : 0,
+    });
+    dataController.selectRun(next.runId ?? null);
+    setRoute(next);
+  };
+
   useEffect(() => {
-    const onPopState = () => {
-      dataController.setHistoryQuery({});
-      dataController.selectRun(runIdFromStudioUrl(window.location.href));
-      setView("runs");
-    };
+    const onPopState = () => applyRoute(parseStudioRoute(window.location.href));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [dataController]);
@@ -288,31 +289,23 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
     return () => clearTimeout(timeout);
   }, [toast]);
 
-  const roots = snapshot?.runs ?? [];
+  const { pipelines, nested } = useMemo(
+    () => railPipelines(commands, snapshot?.pipelines ?? []),
+    [commands, snapshot?.pipelines]
+  );
 
-  useEffect(() => {
-    const next = resolveStudioView(view, snapshot);
-    if (next !== view) setView(next);
-  }, [snapshot, view]);
-
-  useEffect(() => {
-    if (!snapshot || !commandsLoaded || view !== "runs" || selectedRunId) return;
-    const next = resolveSelectedRunId(selectedRunId, roots);
-    if (!next) return;
-    window.history.replaceState(null, "", studioRunUrl(window.location.href, next));
-    dataController.selectRun(next);
-  }, [commandsLoaded, dataController, roots, selectedRunId, snapshot, view]);
-
+  /** Move between pages; tab and drawer changes replace the entry instead of adding one. */
+  const navigate = (next: StudioRoute, { replace = false }: { replace?: boolean } = {}) => {
+    if (dataController.getState().accessDenied) return;
+    const href = studioRouteUrl(window.location.href, next);
+    if (href !== window.location.href) {
+      if (replace) window.history.replaceState(null, "", href);
+      else window.history.pushState(null, "", href);
+    }
+    applyRoute(next);
+  };
   const showToast = (message: string) => {
     if (!dataController.getState().accessDenied) setToast(message);
-  };
-  const selectRun = (runId: string) => {
-    if (dataController.getState().accessDenied) return;
-    if (runId !== selectedRunId) {
-      window.history.pushState(null, "", studioRunUrl(window.location.href, runId));
-    }
-    dataController.selectRun(runId);
-    setView("runs");
   };
   const copyRunLink = async (runId: string) => {
     try {
@@ -335,146 +328,175 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
       setCancelling(false);
     }
   };
-  const filteredCommands = commands.filter(
-    (command) =>
-      !query ||
-      command.name.toLowerCase().includes(query.toLowerCase()) ||
-      commandDescription(command).toLowerCase().includes(query.toLowerCase())
-  );
-  const isPipelines = view === "pipelines";
-  const definitions = snapshot?.definitions ?? [];
 
   if (accessDenied) return <StudioAccessNotice status={accessDenied} href={window.location.href} />;
 
+  const page = studioPage(route);
+  const recordedPipeline = (pipelineId: string) =>
+    pipelineFromHistory(
+      pipelineId,
+      snapshot,
+      data.snapshotPipelineId === pipelineId,
+      historyQuery.query
+    );
   const connection = connectionPresentation(connected);
+  const entries = [...pipelines, ...nested];
+  const pipeline = route.pipelineId
+    ? (entries.find((entry) => entry.pipelineId === route.pipelineId) ??
+      recordedPipeline(route.pipelineId))
+    : undefined;
+  const detail = selection.status === "ready" ? selection.detail : undefined;
+  const runPipelineId =
+    detail?.run.pipelineId ??
+    (selection.status === "loading" ? selection.summary?.pipelineId : undefined);
+  const runPipeline = entries.find((entry) => entry.pipelineId === runPipelineId);
+  const launchTarget = (page === "run" ? runPipeline : pipeline)?.command;
+  // Until a read for the new scope lands, show no runs rather than another scope's list.
+  const listCurrent = data.snapshotPipelineId === route.pipelineId;
+  const roots = (listCurrent && snapshot?.runs) || [];
+  const matchingRuns = listCurrent ? (snapshot?.matchingRootCount ?? 0) : 0;
+  const listEmpty = (empty: { title: string; copy: string }) =>
+    listCurrent ? empty : { title: "Loading runs", copy: "Loading this list." };
+  const runsInView = [...roots, ...(detail ? [...detail.ancestors, ...detail.children] : [])];
+  const pipelineName = (pipelineId: string) =>
+    entries.find((entry) => entry.pipelineId === pipelineId)?.name ?? pipelineId;
+  const openRun = (runId: string, stepId?: string, pipelineId?: string) =>
+    navigate({
+      pipelineId: scopeForRun(
+        runId,
+        route.pipelineId,
+        roots,
+        pipelineId ? [{ runId, pipelineId }, ...runsInView] : runsInView
+      ),
+      runId,
+      stepId,
+    });
+  const pageUnavailable =
+    page === "pipeline" &&
+    commandsLoaded &&
+    snapshot !== null &&
+    data.snapshotPipelineId === route.pipelineId &&
+    pipeline === undefined;
+  const heading =
+    page === "activity"
+      ? { title: "Activity", lede: snapshot ? activitySummary(snapshot) : "Loading history…" }
+      : page === "pipeline"
+        ? {
+            title: pipeline?.name ?? route.pipelineId ?? "",
+            lede: pipeline?.command
+              ? commandDescription(pipeline.command)
+              : "Recorded pipeline · launch it from the CLI or register a command to run it here.",
+          }
+        : { title: runPipeline?.name ?? runPipelineId ?? "Run", lede: "" };
+  const searchPlaceholder =
+    page === "activity"
+      ? "Filter runs or IDs"
+      : page === "pipeline"
+        ? "Filter this pipeline's runs"
+        : route.pipelineId
+          ? "Filter these runs"
+          : "Filter runs or IDs";
+  const showSearch = !(page === "pipeline" && route.tab);
 
   return (
     <>
       <div class="shell">
-        <aside class="rail">
-          <div class="brand">
-            <div class="mark" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M3 4.5h6a3 3 0 0 1 3 3v6" stroke="#f7f8f3" strokeWidth="1.5" />
-                <circle cx="3" cy="4.5" r="2" fill="#7396ff" />
-                <circle cx="12" cy="13.5" r="2" fill="#63d297" />
-              </svg>
-            </div>
-            <div class="brand-copy">
-              <strong>Tubeless</strong>
-              <small>Local studio</small>
-            </div>
-          </div>
-          <div class="rail-label">Workspace</div>
-          <nav class="nav" aria-label="Studio sections">
-            {commands.length > 0 && (
-              <button
-                class={isPipelines ? "active" : ""}
-                type="button"
-                title="Pipelines"
-                onClick={() => setView("pipelines")}
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M4 5h7M4 10h12M9 15h7" />
-                  <circle cx="14.5" cy="5" r="1.5" />
-                  <circle cx="5.5" cy="15" r="1.5" />
-                </svg>
-                <span>Pipelines</span>
-                <b class="nav-count">{commands.length}</b>
-              </button>
-            )}
-            <button
-              class={view === "runs" ? "active" : ""}
-              type="button"
-              title="Runs"
-              onClick={() => setView("runs")}
-            >
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M10 3v4l2.5 1.5M17 10a7 7 0 1 1-2.05-4.95" />
-                <path d="M14.5 2.8v3.5H18" />
-              </svg>
-              <span>Runs</span>
-              <b class="nav-count">{snapshot?.runCount ?? 0}</b>
-            </button>
-            {definitions.length > 0 && (
-              <button
-                class={view === "definitions" ? "active" : ""}
-                type="button"
-                title="Definitions"
-                onClick={() => setView("definitions")}
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <rect x="3" y="3" width="6" height="6" rx="1.5" />
-                  <rect x="11" y="11" width="6" height="6" rx="1.5" />
-                  <path d="M9 6h3a2 2 0 0 1 2 2v3" />
-                </svg>
-                <span>Definitions</span>
-                <b class="nav-count">{definitions.length}</b>
-              </button>
-            )}
-          </nav>
-          <div class="rail-foot">
-            <div class="connection">
-              <i class={connection.className} />
-              <span>{connection.label}</span>
-            </div>
-            <div class="database">append-only SQLite</div>
-            {canClearHistory && (
-              <button
-                class="rail-action"
-                id="clearHistoryButton"
-                type="button"
-                aria-label="Clear history"
-                disabled={!snapshot?.runCount}
-                title={
-                  snapshot?.activeRunCount
-                    ? "Clear history, including runs left active by an interrupted process"
-                    : "Clear history"
-                }
-                onClick={() => setClearHistoryOpen(true)}
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  aria-hidden="true"
+        <Rail
+          pipelines={pipelines}
+          nested={nested}
+          route={route}
+          runPipelineId={runPipelineId}
+          runningCount={snapshot?.activeRunCount ?? 0}
+          onNavigate={(next) => navigate(next)}
+          footer={
+            <>
+              <div class="connection">
+                <i class={connection.className} />
+                <span>{connection.label}</span>
+              </div>
+              <div class="database">append-only SQLite</div>
+              {canClearHistory && (
+                <button
+                  class="rail-action"
+                  id="clearHistoryButton"
+                  type="button"
+                  aria-label="Clear history"
+                  disabled={!snapshot?.runCount}
+                  title={
+                    snapshot?.activeRunCount
+                      ? "Clear history, including runs left active by an interrupted process"
+                      : "Clear history"
+                  }
+                  onClick={() => setClearHistoryOpen(true)}
                 >
-                  <path d="M3 4.5h10M6 2.5h4M5 4.5l.5 9h5l.5-9M7 7v4M9 7v4" />
-                </svg>
-                <span>Clear history…</span>
-              </button>
-            )}
-          </div>
-        </aside>
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    aria-hidden="true"
+                  >
+                    <path d="M3 4.5h10M6 2.5h4M5 4.5l.5 9h5l.5-9M7 7v4M9 7v4" />
+                  </svg>
+                  <span>Clear history…</span>
+                </button>
+              )}
+            </>
+          }
+        />
         <main class="workspace">
           <header class="topbar">
-            <div>
-              <h1>{viewHeadings[view].title}</h1>
-              <p class="lede">{viewHeadings[view].lede}</p>
+            <div class="topbar-copy">
+              {page === "run" && detail && (
+                <RunCrumbs
+                  detail={detail}
+                  summary={selection.status === "ready" ? selection.summary : undefined}
+                  onOpenPipeline={(pipelineId) => navigate({ pipelineId })}
+                  onOpenRun={openRun}
+                  pipelineName={pipelineName}
+                />
+              )}
+              <h1>
+                {page === "pipeline" && pipeline && (
+                  <i class={`rail-dot ${latestStatus(pipeline.summary)}`} aria-hidden="true" />
+                )}
+                {heading.title}
+              </h1>
+              {heading.lede && <p class="lede">{heading.lede}</p>}
             </div>
             <div class="toolbar">
-              {view !== "definitions" && (
+              {showSearch && (
                 <input
                   class="search"
                   type="search"
-                  value={query}
-                  placeholder={isPipelines ? "Filter pipelines" : "Filter runs or IDs"}
-                  aria-label="Filter"
-                  onInput={(event) => {
-                    const value = event.currentTarget.value.trim();
-                    if (isPipelines) setCommandQuery(value);
-                    else dataController.setHistoryQuery({ query: value });
-                  }}
+                  value={historyQuery.query}
+                  placeholder={searchPlaceholder}
+                  aria-label="Filter runs"
+                  onInput={(event) =>
+                    dataController.setHistoryQuery({
+                      pipelineId: route.pipelineId,
+                      query: event.currentTarget.value.trim(),
+                    })
+                  }
                 />
               )}
-              {commands.length > 0 && (
+              {launchTarget ? (
                 <button
                   class="primary-button"
-                  onClick={() => setLaunchCommandId(commands[0]?.id ?? "")}
+                  title={`Run ${launchTarget.name}`}
+                  onClick={() => setLaunchCommandId(launchTarget.id)}
                 >
-                  Run pipeline
+                  Run
                 </button>
+              ) : (
+                commands.length > 0 && (
+                  <button
+                    class="primary-button"
+                    onClick={() => setLaunchCommandId(commands[0]?.id ?? "")}
+                  >
+                    Run pipeline
+                  </button>
+                )
               )}
               <button
                 class={`icon-button${manualRefreshing ? " spinning" : ""}`}
@@ -497,40 +519,85 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
               </button>
             </div>
           </header>
-          {snapshot && (
-            <>
-              {isPipelines && (
-                <section class="metrics">
-                  <Metrics commandCount={commands.length} snapshot={snapshot} />
-                </section>
+          {snapshot && page === "activity" && (
+            <RunList
+              runs={roots}
+              nowMs={nowMs}
+              onSelect={(runId) => navigate({ runId })}
+              showPipeline
+              pipelineName={pipelineName}
+              title="Recent runs"
+              subtitle="Top-level runs · nested work stays with its parent"
+              count={`${matchingRuns} top-level · ${snapshot.runCount} total`}
+              empty={listEmpty({
+                title: "No recorded runs",
+                copy: commands.length
+                  ? "Open a pipeline in the sidebar and choose Run to record its history."
+                  : "Record a run with --store, then open it here.",
+              })}
+              matchingCount={matchingRuns}
+              offset={snapshot.offset}
+              onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
+            />
+          )}
+          {snapshot && page === "pipeline" && pipeline && (
+            <PipelinePage
+              api={api}
+              pipeline={pipeline}
+              tab={route.tab}
+              onTab={(tab) => navigate({ pipelineId: pipeline.pipelineId, tab }, { replace: true })}
+              runs={roots}
+              listLoading={!listCurrent}
+              matchingRunCount={matchingRuns}
+              offset={snapshot.offset}
+              onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
+              nowMs={nowMs}
+              onOpenRun={(runId) => navigate({ pipelineId: pipeline.pipelineId, runId })}
+              definitions={snapshot.definitions.filter(
+                (definition) => definition.pipelineId === pipeline.pipelineId
               )}
-              {isPipelines && (
-                <PipelinesView commands={filteredCommands} onConfigure={setLaunchCommandId} />
-              )}
-              {view === "runs" && (
-                <RunsView
-                  api={api}
-                  offset={snapshot.offset}
-                  matchingRootCount={snapshot.matchingRootCount}
-                  onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
-                  canCancel={canCancel}
-                  cancelling={cancelling}
-                  liveRunIds={snapshot.liveRunIds ?? []}
-                  nowMs={nowMs}
-                  onCancel={(id) => void cancelRun(id)}
-                  onCopyLink={(id) => void copyRunLink(id)}
-                  onSelect={selectRun}
-                  roots={roots}
-                  selection={selection}
-                  latestRunId={roots[0]?.runId}
-                  totalRunCount={snapshot.runCount}
-                />
-              )}
-              {/* Stay mounted so the chosen definition and comparison survive view changes. */}
-              <div hidden={view !== "definitions"}>
-                <DefinitionHistory definitions={definitions} api={api} onSelect={selectRun} />
+            />
+          )}
+          {pageUnavailable && (
+            <div class="sheet">
+              <div class="unavailable-run">
+                <strong>Pipeline unavailable</strong>
+                <p>
+                  This pipeline is not registered and has no recorded runs in this Studio. The link
+                  may refer to another store, or its history was cleared.
+                </p>
+                <code>{route.pipelineId}</code>
+                <button class="secondary-button" type="button" onClick={() => navigate({})}>
+                  Open Activity
+                </button>
               </div>
-            </>
+            </div>
+          )}
+          {snapshot && page === "run" && (
+            <RunsView
+              api={api}
+              pipelineId={route.pipelineId}
+              pipelineName={pipelineName}
+              listLoading={!listCurrent}
+              offset={snapshot.offset}
+              matchingRootCount={matchingRuns}
+              onPage={(offset) => dataController.setHistoryQuery({ ...historyQuery, offset })}
+              canCancel={canCancel}
+              cancelling={cancelling}
+              liveRunIds={snapshot.liveRunIds ?? []}
+              nowMs={nowMs}
+              onCancel={(id) => void cancelRun(id)}
+              onCopyLink={(id) => void copyRunLink(id)}
+              onSelect={(runId, pipelineId) => openRun(runId, undefined, pipelineId)}
+              roots={roots}
+              selection={selection}
+              latestRunId={roots[0]?.runId}
+              totalRunCount={snapshot.runCount}
+              stepId={route.stepId}
+              onSelectStep={(stepId) =>
+                navigate({ ...route, stepId: stepId ?? undefined }, { replace: true })
+              }
+            />
           )}
         </main>
       </div>
@@ -540,11 +607,10 @@ function StudioApp({ api = defaultStudioApi }: { api?: StudioApi }) {
           commands={commands}
           commandId={launchCommandId}
           onClose={() => setLaunchCommandId(null)}
-          onLaunched={(runId) => {
+          onLaunched={(runId, commandId) => {
             if (dataController.getState().accessDenied) return;
-            selectRun(runId);
-            dataController.setHistoryQuery({});
             setLaunchCommandId(null);
+            navigate({ pipelineId: commandId, runId });
             showToast("Run accepted · " + shortId(runId));
             dataController.invalidate({ delayMs: 80 });
           }}

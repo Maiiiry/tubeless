@@ -1,4 +1,4 @@
-import { Fragment, type ComponentChildren } from "preact";
+import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { PipelineStepProgressDetail } from "../core/pipeline.js";
 import type { StoredRunSummary } from "../run-store/run-history.js";
@@ -13,7 +13,17 @@ import {
   type StudioChildStep,
   type StudioRunDetail,
 } from "./run-store-ui-schema.js";
-import { duration, shortId, Status, StepRow } from "./run-store-ui-steps.js";
+import { duration, shortId, Status } from "./run-store-ui-steps.js";
+import {
+  childStepTotal,
+  Drawer,
+  EDGE_KIND_LABEL,
+  Facts,
+  incomingEdges,
+  runOffset,
+  StepInspector,
+  type EdgeKind,
+} from "./run-store-ui-inspector.js";
 
 const SLOT_WIDTH = 124;
 const NODE_HEIGHT = 64;
@@ -33,14 +43,7 @@ const MARGIN = 18;
 /** Approximate advance of the 9px monospace frame header font. */
 const HEADER_CHAR_WIDTH = 5.5;
 
-type EdgeKind = "input" | "optional" | "gate";
 type EdgeState = "active" | "blocked" | "candidate" | "settled" | "tripped" | "unused" | "used";
-
-const EDGE_KIND_LABEL: Record<EdgeKind, string> = {
-  input: "Required input",
-  optional: "Optional input",
-  gate: "Failure gate",
-};
 
 const TERMINAL: Record<string, true> = { cancelled: true, completed: true, failed: true };
 
@@ -145,18 +148,6 @@ function autoExpand(ctx: SceneContext, key: string, running: boolean): boolean {
   return ctx.opened.has(key);
 }
 
-/** Group a step's planned dependencies by source, in required, optional, gate order. */
-function incomingEdges(step: StoredPipelineStep): Map<string, EdgeKind[]> {
-  const edges = new Map<string, EdgeKind[]>();
-  const add = (ids: readonly string[] | undefined, kind: EdgeKind) => {
-    for (const id of ids ?? []) edges.set(id, [...(edges.get(id) ?? []), kind]);
-  };
-  add(step.dependencies, "input");
-  add(step.optionalDependencies, "optional");
-  add(step.skipAfterFailureOf, "gate");
-  return edges;
-}
-
 /** Completed steps and policy skips publish an output that consumers receive. */
 function producedOutput(step: StoredPipelineStep): boolean {
   return step.status === "completed" || step.skipReason === "policy";
@@ -224,15 +215,6 @@ function truncate(label: string, chars = LABEL_CHARS): string {
 /** Top of the circle, where incoming connections end. */
 function itemTop(item: PlacedItem & { kind: string; graph?: RunScene }): number {
   return item.y + (item.kind === "run" && item.graph ? 0 : CENTER_Y - RADIUS - 3);
-}
-
-function childStepTotal(
-  childSteps: readonly StudioChildStep[],
-  stepId: string,
-  fallback: number
-): number {
-  const match = childSteps.find((entry) => entry.stepId === stepId);
-  return match ? Math.max(match.count, fallback) : fallback;
 }
 
 function buildExpansion(
@@ -740,81 +722,8 @@ function RunSceneView({ scene, ui }: { scene: RunScene; ui: GraphUi }) {
   );
 }
 
-function Facts({ rows }: { rows: readonly (readonly [string, ComponentChildren])[] }) {
-  return (
-    <dl class="graph-facts">
-      {rows.map(([label, value]) => (
-        <Fragment key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </Fragment>
-      ))}
-    </dl>
-  );
-}
-
-function ConnectionList({
-  title,
-  empty,
-  rows,
-}: {
-  title: string;
-  empty: string;
-  rows: readonly { id: string; kinds: readonly EdgeKind[]; status: string; onSelect(): void }[];
-}) {
-  return (
-    <div class="graph-io">
-      <h4>{title}</h4>
-      {rows.length === 0 && <p class="graph-hint">{empty}</p>}
-      {rows.map((row) => (
-        <button type="button" key={row.id} onClick={row.onSelect}>
-          <Status value={row.status} />
-          <code>{row.id}</code>
-          <small>{row.kinds.map((kind) => EDGE_KIND_LABEL[kind]).join(" + ")}</small>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ChildRunList({
-  runs,
-  total,
-  onOpenRun,
-}: {
-  runs: readonly StoredRunSummary[];
-  total: number;
-  onOpenRun(runId: string): void;
-}) {
-  if (runs.length === 0) return null;
-  const label = total > runs.length ? `${runs.length} of ${total}` : String(runs.length);
-  return (
-    <div class="graph-io">
-      <h4>Nested runs ({label})</h4>
-      <div class="nested-runs">
-        {runs.map((child) => (
-          <button
-            class="nested-run"
-            type="button"
-            key={child.runId}
-            onClick={() => onOpenRun(child.runId)}
-          >
-            <Status value={child.status} />
-            <strong>{child.origin?.itemKey ?? child.pipelineId}</strong>
-            <small>
-              {duration(child.durationMs)} · {child.stepCount} steps
-            </small>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const offset = (run: StoredPipelineRun, ms: number | undefined) =>
-  ms === undefined ? "—" : "+" + duration(ms - run.startedAtMs);
-
-function Inspector({
+/** Drawer content for the current selection, or null when nothing valid is selected. */
+function inspectorContent({
   selection,
   ctx,
   ui,
@@ -823,7 +732,7 @@ function Inspector({
   selection: GraphSelection | null;
   ctx: SceneContext;
   ui: GraphUi;
-  onOpenRun(runId: string): void;
+  onOpenRun(runId: string, pipelineId?: string): void;
 }) {
   const run = selection ? ctx.runs.get(selection.runId) : undefined;
   if (selection?.kind === "run") {
@@ -858,7 +767,11 @@ function Inspector({
             ]}
           />
           <div class="graph-actions">
-            <button class="primary-button" type="button" onClick={() => onOpenRun(summary.runId)}>
+            <button
+              class="primary-button"
+              type="button"
+              onClick={() => onOpenRun(summary.runId, summary.pipelineId)}
+            >
               Open run
             </button>
             {ctx.expandable.has(summary.runId) && (
@@ -939,8 +852,8 @@ function Inspector({
             rows={[
               ["Source", <Status value={source.status} outputSource={source.outputSource} />],
               ["Target", <Status value={target.status} outputSource={target.outputSource} />],
-              ["Output ready", offset(run, source.finishedAtMs)],
-              ["Consumed", offset(run, target.startedAtMs)],
+              ["Output ready", runOffset(run, source.finishedAtMs)],
+              ["Consumed", runOffset(run, target.startedAtMs)],
             ]}
           />
           {source.artifacts && source.artifacts.length > 0 && (
@@ -968,70 +881,33 @@ function Inspector({
   if (run && selection?.kind === "step") {
     const step = run.steps.find((candidate) => candidate.id === selection.stepId);
     if (step) {
-      const statusOf = (id: string) => run.steps.find((candidate) => candidate.id === id)?.status;
-      const inputs = [...incomingEdges(step)].map(([id, kinds]) => ({
-        id,
-        kinds,
-        status: statusOf(id) ?? "planned",
-        onSelect: () => ui.select({ kind: "edge", runId: run.runId, from: id, to: step.id }),
-      }));
-      const consumers = run.steps.flatMap((candidate) => {
-        const kinds = incomingEdges(candidate).get(step.id);
-        return kinds
-          ? [
-              {
-                id: candidate.id,
-                kinds,
-                status: candidate.status,
-                onSelect: () =>
-                  ui.select({ kind: "edge", runId: run.runId, from: step.id, to: candidate.id }),
-              },
-            ]
-          : [];
-      });
       const childRuns = (ctx.children.get(run.runId) ?? []).filter(
         (child) => child.origin?.stepId === step.id
       );
-      const childTotal = childStepTotal(
-        ctx.childSteps.get(run.runId) ?? [],
-        step.id,
-        childRuns.length
-      );
       return (
-        <div class="graph-inspector">
-          <div class="graph-kicker">Step · {run.pipelineId}</div>
-          <div class="step-list">
-            <StepRow step={step} steps={run.steps} />
-          </div>
-          <Facts
-            rows={[
-              ["Started", offset(run, step.startedAtMs)],
-              ["Finished", offset(run, step.finishedAtMs)],
-            ]}
-          />
-          <ConnectionList title="Inputs" empty="None: this step starts the graph." rows={inputs} />
-          <ConnectionList
-            title="Consumers"
-            empty="None: no later step depends on this output."
-            rows={consumers}
-          />
-          <ChildRunList runs={childRuns} total={childTotal} onOpenRun={onOpenRun} />
-        </div>
+        <StepInspector
+          run={run}
+          step={step}
+          childRuns={childRuns}
+          childTotal={childStepTotal(
+            ctx.childSteps.get(run.runId) ?? [],
+            step.id,
+            childRuns.length
+          )}
+          onOpenRun={onOpenRun}
+          onSelectInput={(id) =>
+            ui.select({ kind: "edge", runId: run.runId, from: id, to: step.id })
+          }
+          onSelectConsumer={(id) =>
+            ui.select({ kind: "edge", runId: run.runId, from: step.id, to: id })
+          }
+        />
       );
     }
   }
-  return (
-    <div class="graph-inspector">
-      <div class="graph-kicker">Inspector</div>
-      <p class="graph-hint">
-        Select a step, connection, or nested run to inspect its inputs, outputs, and execution.
-        Badges expand child pipelines, agent turns, and dynamic tool calls in place.
-      </p>
-    </div>
-  );
+  return null;
 }
 
-/** Track statuses across renders so only observed terminal transitions animate. */
 function usePulse(): (key: string, status: string) => boolean {
   const seen = useRef(new Map<string, string>());
   const pulsing = useRef(new Set<string>());
@@ -1078,26 +954,53 @@ export interface RunGraphProps {
   detail: StudioRunDetail;
   /** Loads nested run steps for in-place expansion; nested runs stay collapsed without it. */
   api?: Pick<StudioApi, "loadRunDetail">;
-  onOpenRun(runId: string): void;
-  /** Select this top-level step whenever `request` changes, as when a diagnostic links to it. */
-  focus?: { stepId: string; request: number };
+  onOpenRun(runId: string, pipelineId?: string): void;
+  /** Top-level step to select, following the page URL. */
+  selectedStepId?: string;
+  /** Changes when a diagnostic asks to reveal the selected step. */
+  focusRequest?: number;
+  /** Reports a top-level step selection, or null for any other selection or none. */
+  onSelectStep?(stepId: string | null): void;
 }
 
 /** Live top-to-bottom DAG of one run's steps with expandable child pipelines. */
-export function RunGraph({ detail, api, onOpenRun, focus }: RunGraphProps) {
+export function RunGraph({
+  detail,
+  api,
+  onOpenRun,
+  selectedStepId,
+  focusRequest,
+  onSelectStep,
+}: RunGraphProps) {
+  const runId = detail.run.runId;
   const [toggles, setToggles] = useState<ReadonlyMap<string, boolean>>(new Map());
   const opened = useRef(new Set<string>());
   const [loads, setLoads] = useState<ReadonlyMap<string, RunLoad>>(new Map());
-  const [selection, setSelection] = useState<GraphSelection | null>(null);
+  const [selection, setSelection] = useState<GraphSelection | null>(() =>
+    selectedStepId ? { kind: "step", runId, stepId: selectedStepId } : null
+  );
   const loadedKeys = useRef(new Map<string, string>());
   const [retry, setRetry] = useState(0);
   const pulse = usePulse();
-  const inspector = useRef<HTMLDivElement>(null);
+  const drawer = useRef<HTMLDivElement>(null);
+  const select = (next: GraphSelection | null) => {
+    setSelection(next);
+    onSelectStep?.(next?.kind === "step" && next.runId === runId ? next.stepId : null);
+  };
+  // Follow the page's step: select it, or drop a top-level step selection it no longer names.
   useEffect(() => {
-    if (!focus) return;
-    setSelection({ kind: "step", runId: detail.run.runId, stepId: focus.stepId });
-    inspector.current?.scrollIntoView({ block: "nearest", behavior: preferredScrollBehavior() });
-  }, [focus?.request]);
+    setSelection((current) => {
+      const ownStep = current?.kind === "step" && current.runId === runId;
+      if (!selectedStepId) return ownStep ? null : current;
+      return ownStep && current.stepId === selectedStepId
+        ? current
+        : { kind: "step", runId, stepId: selectedStepId };
+    });
+  }, [runId, selectedStepId]);
+  useEffect(() => {
+    if (focusRequest)
+      drawer.current?.scrollIntoView({ block: "nearest", behavior: preferredScrollBehavior() });
+  }, [focusRequest]);
   const ctx: SceneContext = {
     loads,
     toggles,
@@ -1149,70 +1052,80 @@ export function RunGraph({ detail, api, onOpenRun, focus }: RunGraphProps) {
 
   const ui: GraphUi = {
     selection,
-    select: setSelection,
+    select,
     toggle: (key, expanded) => setToggles((previous) => new Map(previous).set(key, expanded)),
     pulse,
   };
   const width = scene.width + MARGIN * 2;
   const height = scene.height + MARGIN * 2;
+  const inspector = inspectorContent({ selection, ctx, ui, onOpenRun });
   return (
-    <section class="graph-panel" aria-label="Run graph">
-      <div class="graph-canvas">
-        <svg
-          width={width}
-          height={height}
-          viewBox={`${-MARGIN} ${-MARGIN} ${width} ${height}`}
-          role="group"
-          aria-label={`${detail.run.pipelineId} step graph`}
-        >
-          <RunSceneView scene={scene} ui={ui} />
-        </svg>
-      </div>
-      <div ref={inspector}>
-        <Inspector selection={selection} ctx={ctx} ui={ui} onOpenRun={onOpenRun} />
-      </div>
-      <div class="graph-legend" aria-hidden="true">
-        <span>
-          <i class="running" />
-          Running
-        </span>
-        <span>
-          <i class="completed" />
-          Completed
-        </span>
-        <span>
-          <i class="failed" />
-          Failed
-        </span>
-        <span>
-          <i class="cancelled" />
-          Cancelled
-        </span>
-        <span>
-          <i class="skipped" />
-          Skipped
-        </span>
-        <span>
-          <i class="planned" />
-          Planned
-        </span>
-        <span>
-          <b class="candidate" />
-          Candidate input
-        </span>
-        <span>
-          <b class="used" />
-          Consumed input
-        </span>
-        <span>
-          <b class="gate" />
-          Failure gate
-        </span>
-        <span>
-          <i class="run" />
-          Nested run
-        </span>
-      </div>
-    </section>
+    <div class={`steps-layout${inspector ? " has-drawer" : ""}`}>
+      <section class="graph-panel" aria-label="Run graph">
+        <div class="graph-canvas">
+          <svg
+            width={width}
+            height={height}
+            viewBox={`${-MARGIN} ${-MARGIN} ${width} ${height}`}
+            role="group"
+            aria-label={`${detail.run.pipelineId} step graph`}
+          >
+            <RunSceneView scene={scene} ui={ui} />
+          </svg>
+        </div>
+        <div class="graph-legend" aria-hidden="true">
+          <span>
+            <i class="running" />
+            Running
+          </span>
+          <span>
+            <i class="completed" />
+            Completed
+          </span>
+          <span>
+            <i class="failed" />
+            Failed
+          </span>
+          <span>
+            <i class="cancelled" />
+            Cancelled
+          </span>
+          <span>
+            <i class="skipped" />
+            Skipped
+          </span>
+          <span>
+            <i class="planned" />
+            Planned
+          </span>
+          <span>
+            <b class="candidate" />
+            Candidate input
+          </span>
+          <span>
+            <b class="used" />
+            Consumed input
+          </span>
+          <span>
+            <b class="gate" />
+            Failure gate
+          </span>
+          <span>
+            <i class="run" />
+            Nested run
+          </span>
+          {!inspector && (
+            <span class="graph-legend-hint">
+              Select a step, connection, or nested run to inspect it.
+            </span>
+          )}
+        </div>
+      </section>
+      {inspector && (
+        <div ref={drawer} class="drawer-slot">
+          <Drawer onClose={() => select(null)}>{inspector}</Drawer>
+        </div>
+      )}
+    </div>
   );
 }

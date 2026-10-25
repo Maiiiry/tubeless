@@ -16,10 +16,12 @@ export type StudioRunSelection =
 export interface StudioDataState {
   accessDenied?: StudioAccessDenied;
   connected: boolean;
-  historyQuery: { query: string; offset: number };
+  historyQuery: { pipelineId?: string; query: string; offset: number };
   selection: StudioRunSelection;
   manualRefreshing: boolean;
   snapshot: StudioSnapshot | null;
+  /** Pipeline scope that produced `snapshot.runs`; it lags `historyQuery` until a read lands. */
+  snapshotPipelineId?: string;
 }
 
 export interface StudioDataInvalidation {
@@ -46,6 +48,7 @@ function clearedSnapshot(snapshot: StudioSnapshot): StudioSnapshot {
     activeRunCount: 0,
     completedRunCount: 0,
     definitions: [],
+    pipelines: [],
     failedRunCount: 0,
     runCount: 0,
     eventCount: 0,
@@ -81,14 +84,15 @@ export class StudioDataController {
     api: StudioApi,
     {
       runId = null,
+      pipelineId,
       detailRetryMs = DEFAULT_DETAIL_RETRY_MS,
-    }: { runId?: string | null; detailRetryMs?: number } = {}
+    }: { runId?: string | null; pipelineId?: string; detailRetryMs?: number } = {}
   ) {
     this.#api = api;
     this.#detailRetryMs = detailRetryMs;
     this.#state = {
       connected: true,
-      historyQuery: { query: "", offset: 0 },
+      historyQuery: { pipelineId, query: "", offset: 0 },
       selection: runId ? { status: "loading", runId } : { status: "none" },
       manualRefreshing: false,
       snapshot: null,
@@ -118,24 +122,34 @@ export class StudioDataController {
     return () => this.#listeners.delete(listener);
   }
 
-  setHistoryQuery({ query = "", offset = 0 }: Pick<StudioHistoryQuery, "query" | "offset">): void {
+  setHistoryQuery({
+    pipelineId,
+    query = "",
+    offset = 0,
+  }: Pick<StudioHistoryQuery, "pipelineId" | "query" | "offset">): void {
     if (this.#disposed || this.#state.accessDenied) return;
-    if (this.#state.historyQuery.query === query && this.#state.historyQuery.offset === offset)
+    const current = this.#state.historyQuery;
+    if (current.pipelineId === pipelineId && current.query === query && current.offset === offset)
       return;
     this.#snapshotEpoch += 1;
-    this.#update({ historyQuery: { query, offset } });
+    this.#update({ historyQuery: { pipelineId, query, offset } });
     this.refresh(true);
   }
 
   selectRun(runId: string | null): void {
     if (this.#disposed || this.#state.accessDenied || runId === this.#selectedRunId()) return;
     const summary = runId ? this.#findSummary(runId) : undefined;
+    // Pipeline-scoped pages list runs at any depth; unscoped pages list top-level runs.
     const visible =
-      summary && this.#state.snapshot?.runs.some((root) => root.runId === summary.rootRunId);
+      summary &&
+      this.#state.snapshot?.runs.some(
+        (listed) => listed.runId === summary.rootRunId || listed.runId === summary.runId
+      );
+    const { pipelineId } = this.#state.historyQuery;
     this.#retireDetail();
     this.#snapshotEpoch += 1;
     this.#update({
-      historyQuery: visible ? this.#state.historyQuery : { query: "", offset: 0 },
+      historyQuery: visible ? this.#state.historyQuery : { pipelineId, query: "", offset: 0 },
       selection: runId ? { status: "loading", runId, summary } : { status: "none" },
     });
     if (summary) {
@@ -165,7 +179,7 @@ export class StudioDataController {
     if (resetHistory) {
       this.#retireDetail();
       this.#update({
-        historyQuery: { query: "", offset: 0 },
+        historyQuery: { pipelineId: this.#state.historyQuery.pipelineId, query: "", offset: 0 },
         selection: runId ? { status: "unavailable", runId } : { status: "none" },
         snapshot: this.#state.snapshot ? clearedSnapshot(this.#state.snapshot) : null,
       });
@@ -211,7 +225,7 @@ export class StudioDataController {
     );
   }
 
-  #acceptSnapshot(snapshot: StudioSnapshot): void {
+  #acceptSnapshot(snapshot: StudioSnapshot, snapshotPipelineId: string | undefined): void {
     let selection = this.#state.selection;
     const runId = this.#selectedRunId();
     if (runId) {
@@ -224,26 +238,27 @@ export class StudioDataController {
             : { status: "loading", runId, summary };
         const changed = nextFingerprint !== this.#detailFingerprint;
         this.#detailFingerprint = nextFingerprint;
-        this.#update({ connected: true, snapshot, selection });
+        this.#update({ connected: true, snapshot, snapshotPipelineId, selection });
         if (changed) this.#loadDetail(this.#detailSelectionVersion);
         return;
       }
       this.#retireDetail();
       selection = { status: "unavailable", runId };
     }
-    this.#update({ connected: true, snapshot, selection });
+    this.#update({ connected: true, snapshot, snapshotPipelineId, selection });
   }
 
   #startSnapshotRefresh(): void {
     if (this.#disposed || this.#state.accessDenied) return;
     this.#snapshotRefreshActive = true;
     const epoch = this.#snapshotEpoch;
+    const query = this.#state.historyQuery;
     this.#manualRefreshPending = false;
     void this.#api
-      .loadSnapshot({ ...this.#state.historyQuery, selectedRunId: this.#selectedRunId() })
+      .loadSnapshot({ ...query, selectedRunId: this.#selectedRunId() })
       .then((snapshot) => {
         if (this.#disposed || this.#state.accessDenied || epoch !== this.#snapshotEpoch) return;
-        this.#acceptSnapshot(snapshot);
+        this.#acceptSnapshot(snapshot, query.pipelineId);
       })
       .catch(() => {
         if (this.#disposed || this.#state.accessDenied || epoch !== this.#snapshotEpoch) return;

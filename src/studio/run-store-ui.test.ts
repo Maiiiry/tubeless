@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PipelineRunEventStore, StoredPipelineEvent } from "../run-store/run-store.js";
-import { STUDIO_OPEN_RUN_LIMIT } from "./run-store-ui-state.js";
+import type { StoredRunSummary } from "../run-store/run-history.js";
+import { STUDIO_OPEN_RUN_LIMIT, summarizePipelines } from "./run-store-ui-state.js";
 import { decodePipelineTraceEvent } from "../tracing/tracing-codec.js";
 import type { PipelineTraceEvent } from "../tracing/tracing.js";
 import { PIPELINE_RUN_STUDIO_STYLE } from "./run-store-ui-page.js";
@@ -209,7 +210,7 @@ describe("local pipeline run studio", () => {
     expect(html).not.toContain('data-view="active"');
     expect(html).not.toContain('data-view="definitions"');
     expect(html).toContain("Run pipeline");
-    expect(html).toContain("Available pipelines");
+    expect(html).toContain("Nested pipelines");
     expect(html).toContain("Preview plan");
     expect(html).toContain("Pipeline inputs");
     expect(html).toContain("Execution controls");
@@ -970,6 +971,152 @@ describe("local pipeline run studio", () => {
           }))
       );
     }
+  });
+
+  it("summarizes pipelines and scopes history to one pipeline at any depth", async () => {
+    const stored: StoredPipelineEvent[] = [];
+    let clock = 0;
+    const run = (
+      pipelineId: string,
+      runId: string,
+      { parentRunId, status }: { parentRunId?: string; status?: "completed" | "cancelled" } = {}
+    ) => {
+      clock += 1;
+      stored.push(
+        storedEvent({
+          id: stored.length + 1,
+          version: 2,
+          name: "pipeline.started",
+          pipelineId,
+          runId,
+          parentRunId,
+          timestampMs: clock,
+        })
+      );
+      if (status)
+        stored.push(
+          storedEvent({
+            id: stored.length + 1,
+            version: 2,
+            name: "pipeline.completed",
+            pipelineId,
+            runId,
+            parentRunId,
+            durationMs: 1,
+            timestampMs: clock,
+            payload: { status },
+          })
+        );
+    };
+    for (let index = 0; index < 12; index += 1)
+      run("import", `import-${index}`, { status: index % 4 === 0 ? "cancelled" : "completed" });
+    run("enrich", "enrich-child-a", { parentRunId: "import-11", status: "completed" });
+    run("enrich", "enrich-child-b", { parentRunId: "import-11" });
+    run("import", "import-live");
+    const server = await startPipelineRunStudio({ port: 0, store: memoryStore(stored) });
+    servers.push(server);
+    const endpoint = `${server.url}/api/snapshot`;
+
+    const snapshot = await fetch(endpoint).then((response) => response.json());
+    expect(snapshot.pipelines).toEqual([
+      {
+        pipelineId: "import",
+        topLevelRunCount: 13,
+        nestedRunCount: 0,
+        runningCount: 1,
+        latestStartedAtMs: 15,
+        latestStatus: "running",
+        recent: [
+          { runId: "import-live", status: "running" },
+          ...[11, 10, 9, 8, 7, 6, 5, 4, 3].map((index) => ({
+            runId: `import-${index}`,
+            status: index % 4 === 0 ? "cancelled" : "completed",
+          })),
+        ],
+      },
+      {
+        pipelineId: "enrich",
+        topLevelRunCount: 0,
+        nestedRunCount: 2,
+        runningCount: 1,
+        latestStartedAtMs: 14,
+        latestStatus: "running",
+        recent: [
+          { runId: "enrich-child-b", status: "running" },
+          { runId: "enrich-child-a", status: "completed" },
+        ],
+      },
+    ]);
+
+    const nested = await fetch(endpoint + "?pipeline=enrich").then((response) => response.json());
+    expect(nested).toMatchObject({ matchingRootCount: 2, rootRunCount: 13 });
+    expect(nested.runs.map((entry: { runId: string }) => entry.runId)).toEqual([
+      "enrich-child-b",
+      "enrich-child-a",
+    ]);
+    const searched = await fetch(endpoint + "?pipeline=enrich&query=CHILD-A").then((response) =>
+      response.json()
+    );
+    expect(searched.runs.map((entry: { runId: string }) => entry.runId)).toEqual([
+      "enrich-child-a",
+    ]);
+    const scopedImport = await fetch(endpoint + "?pipeline=import").then((response) =>
+      response.json()
+    );
+    expect(scopedImport.runs[0].runId).toBe("import-live");
+    expect(scopedImport.matchingRootCount).toBe(13);
+    expect((await fetch(endpoint + "?pipeline=" + "x".repeat(4097))).status).toBe(400);
+  });
+
+  it("reports the newest outcome at any depth beside the top-level strip", () => {
+    const summary = (
+      runId: string,
+      rootRunId: string,
+      startedAtMs: number,
+      status: StoredRunSummary["status"]
+    ): StoredRunSummary => ({
+      runId,
+      rootRunId,
+      pipelineId: "enrich",
+      startedAtMs,
+      status,
+      dryRun: false,
+      eventCount: 2,
+      subtreeEventCount: 2,
+      stepCount: 0,
+      descendantCount: 0,
+      subtreeIsRunning: false,
+      activity: { count: 0, names: [] },
+    });
+    const [enrich] = summarizePipelines([
+      summary("top", "top", 1, "completed"),
+      summary("child", "parent", 2, "cancelled"),
+    ]);
+    expect(enrich).toMatchObject({
+      latestStartedAtMs: 2,
+      latestStatus: "cancelled",
+      recent: [{ runId: "top", status: "completed" }],
+    });
+  });
+
+  it("summarizes a pipeline with more runs than the call stack allows arguments", () => {
+    const runs = Array.from({ length: 200_000 }, (_, index): StoredRunSummary => ({
+      runId: `run-${index}`,
+      rootRunId: `run-${index}`,
+      pipelineId: "busy",
+      startedAtMs: index,
+      status: "completed",
+      dryRun: false,
+      eventCount: 2,
+      subtreeEventCount: 2,
+      stepCount: 0,
+      descendantCount: 0,
+      subtreeIsRunning: false,
+      activity: { count: 0, names: [] },
+    }));
+    const [busy] = summarizePipelines(runs);
+    expect(busy).toMatchObject({ topLevelRunCount: 200_000, latestStartedAtMs: 199_999 });
+    expect(busy!.recent).toHaveLength(10);
   });
 
   it("pages compact roots, searches descendants and conditionally refreshes history", async () => {

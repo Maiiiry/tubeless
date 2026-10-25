@@ -18,6 +18,9 @@ import {
 import { pageDirectChildren } from "./run-store-ui-children.js";
 import {
   STUDIO_HISTORY_PAGE_SIZE,
+  STUDIO_PIPELINE_LIMIT,
+  STUDIO_PIPELINE_RECENT_RUNS,
+  type StudioPipelineSummary,
   type StudioSnapshot,
   type StudioRunDetail,
   type StudioChildRuns,
@@ -57,8 +60,9 @@ export class PipelineRunStudioEventState {
         summaries: Map<string, StoredRunSummary>;
         roots: StoredRunSummary[];
         definitions: StoredDefinitionSummary[];
+        pipelines: StudioPipelineSummary[];
         eventCount: number;
-        search?: { query: string; roots: StoredRunSummary[] };
+        search?: { query: string; pipelineId: string; roots: StoredRunSummary[] };
       }
     | undefined;
 
@@ -137,20 +141,35 @@ export class PipelineRunStudioEventState {
       summaries,
       roots,
       definitions: source.definitions.map(summarizeDefinition),
+      pipelines: summarizePipelines(summaries.values()),
       eventCount: source.runs.reduce((sum, run) => sum + run.eventCount, 0),
     };
     return this.#history;
   }
 
-  workspace(query = "", offset = 0, selectedRunId?: string | null): Promise<StudioSnapshot> {
+  /**
+   * One page of history. Without a pipeline, top-level runs whose subtree matches the
+   * search. With one, that pipeline's runs at any depth whose own identifiers match.
+   */
+  workspace(
+    query = "",
+    offset = 0,
+    selectedRunId?: string | null,
+    pipelineId = ""
+  ): Promise<StudioSnapshot> {
     return this.#serialize(async () => {
       await this.#appendNewEvents();
       const history = this.#indexedHistory();
       let roots = history.roots;
-      if (query) {
-        if (history.search?.query !== query) {
-          const matches = history.index.matchingRootIds(query);
-          history.search = { query, roots: roots.filter((run) => matches.has(run.runId)) };
+      if (query || pipelineId) {
+        if (history.search?.query !== query || history.search.pipelineId !== pipelineId) {
+          history.search = {
+            query,
+            pipelineId,
+            roots: pipelineId
+              ? pipelineRuns(history.summaries.values(), pipelineId, query)
+              : matchingRoots(roots, history.index.matchingRootIds(query)),
+          };
         }
         roots = history.search.roots;
       }
@@ -173,6 +192,7 @@ export class PipelineRunStudioEventState {
         matchingRootCount: roots.length,
         offset: pageOffset,
         definitions: history.definitions,
+        pipelines: history.pipelines,
         liveRunIds: [],
         runs: roots.slice(pageOffset, pageOffset + STUDIO_HISTORY_PAGE_SIZE),
         selectedRun: selectedRunId ? history.summaries.get(selectedRunId) : undefined,
@@ -287,4 +307,66 @@ export class PipelineRunStudioEventState {
       };
     });
   }
+}
+
+const matchingRoots = (roots: readonly StoredRunSummary[], matches: ReadonlySet<string>) =>
+  roots.filter((run) => matches.has(run.runId));
+
+const newestFirst = (left: StoredRunSummary, right: StoredRunSummary) =>
+  right.startedAtMs - left.startedAtMs;
+
+function pipelineRuns(
+  summaries: Iterable<StoredRunSummary>,
+  pipelineId: string,
+  query: string
+): StoredRunSummary[] {
+  const needle = query.toLowerCase();
+  return [...summaries]
+    .filter(
+      (run) =>
+        run.pipelineId === pipelineId &&
+        (!needle ||
+          run.runId.toLowerCase().includes(needle) ||
+          !!run.correlationId?.toLowerCase().includes(needle))
+    )
+    .sort(
+      (left, right) =>
+        Number(right.subtreeIsRunning) - Number(left.subtreeIsRunning) || newestFirst(left, right)
+    );
+}
+
+/** Per-pipeline activity for the navigation rail, most recently active first. */
+export function summarizePipelines(summaries: Iterable<StoredRunSummary>): StudioPipelineSummary[] {
+  const byPipeline = new Map<
+    string,
+    { topLevel: StoredRunSummary[]; nested: StoredRunSummary[] }
+  >();
+  for (const run of summaries) {
+    const entry = byPipeline.get(run.pipelineId) ?? { topLevel: [], nested: [] };
+    (run.rootRunId === run.runId ? entry.topLevel : entry.nested).push(run);
+    byPipeline.set(run.pipelineId, entry);
+  }
+  return [...byPipeline]
+    .map(([pipelineId, { topLevel, nested }]) => {
+      const all = [...topLevel, ...nested];
+      // A loop rather than Math.max(...): spreading every run can exceed the call stack.
+      const latest = all.reduce((newest, run) =>
+        run.startedAtMs > newest.startedAtMs ? run : newest
+      );
+      const recent = (topLevel.length ? topLevel : nested)
+        .sort(newestFirst)
+        .slice(0, STUDIO_PIPELINE_RECENT_RUNS)
+        .map(({ runId, status }) => ({ runId, status }));
+      return {
+        pipelineId,
+        topLevelRunCount: topLevel.length,
+        nestedRunCount: nested.length,
+        runningCount: all.filter((run) => run.status === "running").length,
+        latestStartedAtMs: latest.startedAtMs,
+        latestStatus: latest.status,
+        recent,
+      };
+    })
+    .sort((left, right) => right.latestStartedAtMs - left.latestStartedAtMs)
+    .slice(0, STUDIO_PIPELINE_LIMIT);
 }

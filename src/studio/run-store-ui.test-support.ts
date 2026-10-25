@@ -1,6 +1,7 @@
 import { createRunHistoryIndex, summarizeRun } from "../run-store/run-history.js";
 import type { StoredPipelineRun } from "../run-store/run-store.js";
 import type { StudioSnapshot, StudioRunDetail } from "./run-store-ui-schema.js";
+import { summarizePipelines } from "./run-store-ui-state.js";
 
 export function studioSnapshot(
   runs: readonly StoredPipelineRun[],
@@ -12,6 +13,7 @@ export function studioSnapshot(
     completedRunCount: runs.filter((run) => run.status === "completed").length,
     failedRunCount: runs.filter((run) => run.status === "failed").length,
     definitions: [],
+    pipelines: summarizePipelines(runs.map((run) => summarizeRun(run, index))),
     generatedAtMs: 1,
     lastEventId: 1,
     revision: 1,

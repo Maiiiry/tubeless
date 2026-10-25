@@ -286,7 +286,8 @@ interface LaunchModalProps {
   commands: readonly PipelineRunStudioCommand[];
   commandId: string | null;
   onClose(): void;
-  onLaunched(runId: string): void;
+  /** Receives the new run and the command (pipeline) that started it. */
+  onLaunched(runId: string, commandId: string): void;
 }
 
 export function LaunchModal({ api, commands, commandId, onClose, onLaunched }: LaunchModalProps) {
@@ -375,7 +376,10 @@ export function LaunchModal({ api, commands, commandId, onClose, onLaunched }: L
     setLaunching(true);
     setError("");
     try {
-      onLaunched(await api.launch(command.id, serializeLaunchValues(command, readValues)));
+      onLaunched(
+        await api.launch(command.id, serializeLaunchValues(command, readValues)),
+        command.id
+      );
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {

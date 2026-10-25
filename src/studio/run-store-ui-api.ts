@@ -63,10 +63,19 @@ export function createStudioApiHandler(
             400,
             "Use at most 4096 characters."
           );
+        const pipelineId = url.searchParams.get("pipeline") ?? "";
+        if (pipelineId.length > 4096)
+          throw new StudioRequestError(
+            "invalid_pipeline",
+            "Pipeline ID is too long.",
+            400,
+            "Use at most 4096 characters."
+          );
         const snapshot = await eventState.workspace(
           query,
           historyOffset(url),
-          url.searchParams.get("run")
+          url.searchParams.get("run"),
+          pipelineId
         );
         const liveRunIds = launcher?.liveRunIds?.() ?? [];
         const etag = `"${await sha256Hex(JSON.stringify([instanceId, snapshot.revision, url.search, liveRunIds]))}"`;

@@ -26,6 +26,8 @@ export type {
 } from "./run-store-ui-schema.js";
 
 export interface StudioHistoryQuery {
+  /** Limit history to one pipeline's runs at any depth. */
+  pipelineId?: string;
   query?: string;
   offset?: number;
   selectedRunId?: string | null;
@@ -131,8 +133,9 @@ export function createStudioApi(fetcher: typeof fetch = fetch, mount = ""): Stud
         listeners.delete(listener);
       };
     },
-    async loadSnapshot({ query = "", offset = 0, selectedRunId } = {}) {
+    async loadSnapshot({ query = "", offset = 0, pipelineId, selectedRunId } = {}) {
       const params = new URLSearchParams();
+      if (pipelineId) params.set("pipeline", pipelineId);
       if (query) params.set("query", query);
       if (offset) params.set("offset", String(offset));
       if (selectedRunId) params.set("run", selectedRunId);

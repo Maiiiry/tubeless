@@ -37,36 +37,55 @@ and does not accept a project file or `--command`.
 
 ## Use the browser controls
 
-The run list shows active runs first, followed by history. Child runs appear
-beneath their parent, and caller-owned correlation IDs remain searchable and
-visible separately from package-generated run IDs. History is paged in groups of
-50 top-level runs; search includes nested runs across the complete history.
-Open a run to inspect its steps, progress, logs, and errors. Studio loads those
-details and complete definition snapshots separately from the history summaries,
-and unchanged refreshes reuse the current history page. Definition run pages
-refresh independently, preserving metadata search, grouping, and comparisons.
-Failed definition requests offer a retry beside the affected content.
+Studio reads top-down: pick a pipeline, open one of its runs, then select a step.
+Raw identifiers stay out of the way until you ask for them.
 
-Run details lead with a one-line outcome, such as where the run failed or how
-many steps it completed, followed by error diagnostics, the steps, nested runs, and
-logs. The run list stays in view while you scroll the details. Structured errors
-name the failed steps; select one to jump to its timeline row or graph node. They
-also show validation issue paths, expandable cause chains, failed fan-out items,
-and any omitted failure count. Skipped steps explain why they did not run, naming
-the failed gate or unavailable required input when the recording identifies it.
-Retries appear beside the step's duration. Logs can be searched by message text and
-filtered by level and step; the count shows how many entries match. These
-diagnostics are limited to the selected run. Open a nested run to inspect its own
-errors and logs. The definition identity that produced the run is folded under
-**Definition** at the end of the details.
+- **Activity** is the home page. It summarizes running work, recorded runs, and the
+  share that succeeded, then lists top-level runs across pipelines with active runs
+  first. Child runs stay with their parent. History is paged in groups of 50; search
+  matches run IDs, pipeline IDs, and caller-owned correlation IDs anywhere in a run's
+  subtree.
+- The **sidebar** lists every pipeline Studio knows: registered commands plus
+  pipelines with recorded top-level runs, sorted by name, with a filter once the list
+  grows. Each row shows the latest outcome and up to ten recent runs. Pipelines that
+  ran only as children of other pipelines are grouped under **Nested pipelines**.
+- A **pipeline page** has three tabs. **Runs** lists that pipeline's runs at any depth,
+  newest first, and its search matches run and correlation IDs. **Graph** draws the
+  declared steps from the latest recorded definition, or from the current plan when a
+  registered pipeline has never run. **Versions** lists recorded definitions and
+  compares them; it appears once a definition is recorded. **Run** opens the launch
+  form when a command is registered.
+- A **run page** keeps the run list beside the run. A breadcrumb above the title walks
+  from the top-level run through each starting step to nested runs. The run leads
+  with a one-line outcome, such as where it failed or how many steps it completed,
+  followed by error diagnostics and the **Steps**, **Logs**, **Nested runs**, and
+  **Details** tabs. Details holds the run and correlation IDs, event count, and the
+  definition identity that produced the run.
+- Selecting a step, by its name in the timeline or its node in the graph, opens the
+  **inspector** beside the steps: outcome, skip explanation, timing, retries, inputs
+  and consumers, artifacts, progress items, the step's own logs, the run error when
+  this step failed, and the nested runs it started. Escape or × closes it. On narrower
+  windows the inspector slides over the run.
 
-The selected run appears in the browser URL as `?run=<run-id>`. Selecting a run,
-including a nested run, adds a browser history entry, so Back and Forward restore
-earlier selections. The copy icon in run details has a **Copy run link** tooltip
-and copies the selected run's URL. Links work only with the same Studio mount
-and run store. If the run was deleted or belongs to another store, Studio shows
-an unavailable-run message and keeps the requested ID visible so you can choose
-another run.
+Structured errors name the failed steps; select one to open it in the inspector.
+They also show validation issue paths, expandable cause chains, failed fan-out
+items, and any omitted failure count. Skipped steps explain why they did not run,
+naming the failed gate or unavailable required input when the recording identifies
+it. Logs can be searched by message text and filtered by level and step; the count
+shows how many entries match. These diagnostics are limited to the selected run.
+Open a nested run to inspect its own errors and logs. Studio loads run details and
+complete definition snapshots separately from history summaries, and unchanged
+refreshes reuse the current page. Failed definition requests offer a retry beside
+the affected content.
+
+The page URL records where you are: `?pipeline=<id>` for a pipeline page (with
+`&tab=graph` or `&tab=versions`), `?run=<run-id>` for a run, `&pipeline=<id>` to
+scope a run's list to that pipeline, and `&step=<step-id>` for the open inspector.
+Moving between pages adds a browser history entry, so Back and Forward restore
+earlier pages; switching tabs or inspector steps replaces the current entry. The
+copy icon on a run has a **Copy run link** tooltip and copies a link to that run
+alone. Links work only with the same Studio mount and run store. If a run or
+pipeline is not in this history, Studio says so and keeps the requested ID visible.
 
 Test-runtime recordings retain ordinary step statuses and annotate supplied
 outputs as `completed (overridden)`, `failed (overridden)`, or `cancelled (overridden)`. The supplied values are not recorded. Studio launch forms
@@ -106,15 +125,15 @@ iterations, agent turns, and agent tool calls appear inside the expansion, and t
 calls are labeled by tool. Nested runs can expand again to show their own steps, up
 to six levels deep and sixteen items per step. The nested run list opens the rest
 sixteen per step at a time.
-Select a step, arrow, or nested run to inspect its inputs and outputs, progress,
-attempt, artifacts, and nested runs, or to open a nested run. Recordings made before
+Select a step, arrow, or nested run to open it in the inspector beside the graph,
+or open a nested run from there. Recordings made before
 dependencies were recorded show steps without arrows. Animations respect the
 reduced-motion setting.
 
 | Control       | What it does                                                                                                                                   | When available                                                                       |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Preview plan  | Shows the selected steps and dry-run behavior without starting or recording a run                                                              | A pipeline command is registered                                                     |
-| Run pipeline  | Validates the form values and starts the command                                                                                               | A command is registered locally or in gateway mode                                   |
+| Run           | Validates the form values, starts the command, and opens the new run                                                                           | A command is registered locally or in gateway mode                                   |
 | Cancel run    | Aborts the selected live run without stopping Studio or sibling runs                                                                           | This Studio process owns the top-level launch                                        |
 | Clear history | Deletes all recorded SQLite events and attempts database compaction after confirmation; the action sits in the sidebar footer beside the store | Local SQLite mode with the maintenance capability enabled and no known active writer |
 
@@ -299,8 +318,8 @@ or runtime return values. Remote handler versions belong in the application-supp
 implementation version. External pipeline implementations without definition metadata
 contribute only their declared child IDs and composition metadata.
 
-Studio's **Definitions** view, in the sidebar once a run records its definition,
-groups recordings by pipeline ID and definition ID. Select a definition to see its runs. **Compare from** shows
+A pipeline page's **Versions** tab groups that pipeline's recordings by definition
+ID. Select a definition to see its runs. **Compare from** shows
 changes from another observed version of the same pipeline to the selected version:
 added/removed steps, execution order, edges, targets, policies, validation boundaries,
 child/remote metadata, and implementation versions. Child steps stay opaque wrappers;
@@ -478,5 +497,6 @@ application. The repository proxy integration tests exercise the contract; they 
 not prove a consuming application's gateway is configured correctly.
 
 See [SECURITY.md](https://github.com/chetmancini/tubeless/blob/main/SECURITY.md).
-Studio previews and observed definitions also expose [graph metadata](./graph-metadata.md).
-Expand **Explore steps** to search metadata and group by owner or domain.
+Studio previews and recorded versions also expose [graph metadata](./graph-metadata.md).
+Expand **Explore steps** on the Versions tab to search metadata and group by owner or
+domain.

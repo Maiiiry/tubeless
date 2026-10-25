@@ -252,11 +252,13 @@ async function commandArgumentCompletion(
     return Array.isArray(parameter?.value) ? valuesOf(parameter.value) : NO_COMPLETION;
   }
   if (current.startsWith("-")) {
+    const names = new Set(parameters.map(({ flag }) => flag));
     return {
       candidates: [
-        ...parameters.map(({ flag, description }) =>
-          description === undefined ? { value: `--${flag}` } : { value: `--${flag}`, description }
-        ),
+        ...parameters.flatMap(({ flag, type, description }) => [
+          description === undefined ? { value: `--${flag}` } : { value: `--${flag}`, description },
+          ...(type === "boolean" && !names.has(`no-${flag}`) ? [{ value: `--no-${flag}` }] : []),
+        ]),
         { value: "--help", description: "Show command help" },
       ],
       files: false,

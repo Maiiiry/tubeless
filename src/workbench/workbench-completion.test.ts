@@ -39,6 +39,9 @@ async function writeProject(
         {
           ${mode === "named" ? "" : 'positionals: ["format", "text"],'}
           params: {
+            verbose: { type: "boolean", default: true },
+            enabled: { type: "boolean", default: true },
+            disableMode: { type: "string", flag: "no-enabled", choices: ["soft", "hard"], optional: true },
             text: { type: "${mode === "positional" ? "path" : "string"}", ${mode === "repeatable" ? 'multiple: true, choices: ["a", "b"],' : ""} description: "Text to import." },
             format: { type: "string", short: "f", choices: ["json", "csv", ...${JSON.stringify(extraValues)}], ${mode === "named" ? 'default: "json",' : ""} },
           },
@@ -302,6 +305,19 @@ describe("tubeless __complete", () => {
       "report",
       ":files",
     ]);
+  });
+
+  it("offers negated boolean flags without overriding literal no-* options", async () => {
+    const directory = await writeProject();
+    const flags = await complete(directory, "run", "import-data", "--", "--no-");
+    expect(flags.values).toContain("--no-verbose");
+    expect(flags.values).toContain("--no-dry-run");
+    expect(flags.values).toContain("--no-continue-on-error");
+    expect(flags.values.filter((value) => value === "--no-enabled")).toHaveLength(1);
+    expect(
+      (await complete(directory, "run", "import-data", "--", "--no-enabled", "")).values
+    ).toEqual(["soft", "hard"]);
+    expect(flags.values).not.toContain("--no-no-enabled");
   });
 
   it("keeps a repeatable positional active", async () => {

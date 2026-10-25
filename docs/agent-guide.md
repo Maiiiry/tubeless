@@ -443,6 +443,8 @@ read when a pipeline needs them.
   the servers afterwards (`await using`). Inventories are fixed at connection.
   Inputs support fixed-property objects, homogeneous arrays and `anyOf`; unsupported
   structural schemas fail at connection rather than during an agent's run.
+  Required names must have property definitions; optional nullable fields are
+  rejected because a strict null placeholder would erase their explicit nulls.
   Read [MCP servers](./agents.md#connect-mcp-servers) and adapt the
   [MCP recipe](../examples/agent-mcp.ts).
 

@@ -1,7 +1,11 @@
 import type { StandardSchemaV1 } from "../core/pipeline-types.js";
+import { canonicalJsonValue } from "../utilities/canonical-json.js";
 import { isRecord } from "./mcp-session.js";
 
 type Json = Readonly<Record<string, unknown>>;
+
+const jsonEqual = (left: unknown, right: unknown) =>
+  JSON.stringify(canonicalJsonValue(left)) === JSON.stringify(canonicalJsonValue(right));
 
 const objectSchema = (schema: Json) =>
   schema.type === "object" ||
@@ -61,11 +65,20 @@ function strict(
     result.anyOf = schema.anyOf.map((child) => strict(child, root, optional, seen));
   if (!objectSchema(schema)) return result;
   const properties = isRecord(schema.properties) ? schema.properties : {};
-  const required = Array.isArray(schema.required) ? schema.required : [];
+  const required = schema.required ?? [];
+  if (
+    !Array.isArray(required) ||
+    required.some((name) => typeof name !== "string" || !Object.hasOwn(properties, name))
+  )
+    throw new Error("MCP required names must be declared in properties");
   result.properties = Object.fromEntries(
     Object.entries(properties).map(([name, child]) => {
       const field = strict(child, root, optional, seen);
       if (required.includes(name)) return [name, field];
+      if (acceptsNull(field, optional))
+        throw new Error(
+          `Optional MCP property ${name} already accepts null; omission would be ambiguous`
+        );
       const wrapper = { anyOf: [field, { type: "null" }] };
       optional.add(wrapper);
       return [name, wrapper];
@@ -106,9 +119,9 @@ function decode(schema: unknown, value: unknown, path: string, optional: WeakSet
   if (!isRecord(schema)) return value;
   if (schema.type !== undefined && !typeMatches(schema.type, value))
     throw new Error(`${path} must be ${JSON.stringify(schema.type)}`);
-  if (Array.isArray(schema.enum) && !schema.enum.some((option) => Object.is(option, value)))
+  if (Array.isArray(schema.enum) && !schema.enum.some((option) => jsonEqual(option, value)))
     throw new Error(`${path} must be one of ${JSON.stringify(schema.enum)}`);
-  if (Object.hasOwn(schema, "const") && !Object.is(schema.const, value))
+  if (Object.hasOwn(schema, "const") && !jsonEqual(schema.const, value))
     throw new Error(`${path} must be ${JSON.stringify(schema.const)}`);
   if (Array.isArray(schema.anyOf)) value = decodeAny(schema.anyOf, value, path, optional);
   if (Array.isArray(value))
@@ -138,6 +151,15 @@ function decodeAny(options: unknown[], value: unknown, path: string, optional: W
     }
   }
   throw new Error(`${path} matches no allowed schema`);
+}
+
+function acceptsNull(schema: Json, optional: WeakSet<object>): boolean {
+  try {
+    decode(schema, null, "input", optional);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Adapt an MCP tool input schema to a strict model descriptor and an argument decoder. */

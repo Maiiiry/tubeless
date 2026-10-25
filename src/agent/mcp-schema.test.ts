@@ -73,6 +73,90 @@ describe("MCP input schemas", () => {
     ).toHaveProperty("issues");
   });
 
+  it.each([
+    { type: ["string", "null"] },
+    { anyOf: [{ type: "string" }, { type: "null" }] },
+    { enum: ["value", null] },
+    { const: null },
+    {},
+    { $ref: "#/$defs/nullable" },
+  ])("rejects optional fields that already accept null: %j", async (field) => {
+    const input = {
+      type: "object",
+      properties: { value: field },
+      $defs: { nullable: { type: ["string", "null"] } },
+    };
+    expect(() => mcpInputSchema(input)).toThrow("Optional MCP property value already accepts null");
+    const required = mcpInputSchema({ ...input, required: ["value"] });
+    expect(await required["~standard"].validate({ value: null })).toEqual({
+      value: { value: null },
+    });
+  });
+
+  it("uses null placeholders for non-nullable optional enums and constants", async () => {
+    const schema = mcpInputSchema({
+      type: "object",
+      properties: {
+        color: { enum: ["red", "blue"] },
+        value: { const: "fixed" },
+      },
+    });
+    expect(await schema["~standard"].validate({ color: null, value: null })).toEqual({ value: {} });
+    expect(await schema["~standard"].validate({ color: "blue", value: "fixed" })).toEqual({
+      value: { color: "blue", value: "fixed" },
+    });
+  });
+
+  it.each([
+    { type: "object", required: ["query"] },
+    { type: "object", properties: { nested: { type: "object", required: ["query"] } } },
+    { type: "object", properties: { query: { type: "string" } }, required: ["query", "missing"] },
+  ])("rejects required names absent from properties: %j", (input) => {
+    expect(() => mcpInputSchema(input)).toThrow(
+      "MCP required names must be declared in properties"
+    );
+  });
+
+  it.each(["enum", "const"])("compares JSON-valued %s entries structurally", async (keyword) => {
+    const object = { count: 1, nested: { label: "ok", values: [1, 2] } };
+    const array = [{ label: "ok", count: 1 }, 2];
+    const constraint = (value: unknown) => ({ [keyword]: keyword === "enum" ? [value] : value });
+    const schema = mcpInputSchema({
+      type: "object",
+      properties: {
+        object: {
+          type: "object",
+          properties: {
+            count: { type: "integer" },
+            nested: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                values: { type: "array", items: { type: "integer" } },
+              },
+              required: ["label", "values"],
+            },
+          },
+          required: ["count", "nested"],
+          ...constraint(object),
+        },
+        array: { type: "array", ...constraint(array) },
+      },
+      required: ["object", "array"],
+    });
+    const value = {
+      object: { nested: { values: [1, 2], label: "ok" }, count: 1 },
+      array: [{ count: 1, label: "ok" }, 2],
+    };
+    expect(await schema["~standard"].validate(value)).toEqual({ value });
+    expect(
+      await schema["~standard"].validate({ ...value, array: [2, { count: 1, label: "ok" }] })
+    ).toHaveProperty("issues");
+    expect(
+      await schema["~standard"].validate({ ...value, object: { ...value.object, count: 2 } })
+    ).toHaveProperty("issues");
+  });
+
   it.each(["oneOf", "allOf", "prefixItems", "not", "if", "dependentSchemas", "patternProperties"])(
     "rejects %s before advertising a tool with an unsupported descriptor",
     (keyword) => {

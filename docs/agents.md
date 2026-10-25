@@ -477,8 +477,12 @@ removed before the call, including inside `anyOf` branches and array items.
 The adapter supports fixed-property objects, homogeneous arrays and `anyOf`.
 It rejects free-form objects, recursive references, tuple schemas, `oneOf`,
 `allOf`, conditionals and other unsupported structural constructs at connection
-time. Arguments are structurally validated before dispatch; the server validates
-the remaining constraints, including formats and ranges.
+time. Required names must be declared in `properties`. Optional properties that
+already accept `null` are rejected because strict descriptors cannot distinguish
+an omitted value from an explicit null; required nullable properties retain nulls.
+Arguments are structurally validated before dispatch, including structural equality
+for JSON-valued `enum` and `const`; the server validates the remaining constraints,
+including formats and ranges.
 
 Results are `{ content, structuredContent? }` from the server. A result with
 `isError` becomes a recoverable `MCP_TOOL_ERROR` observation, and JSON-RPC errors

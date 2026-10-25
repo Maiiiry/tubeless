@@ -107,6 +107,103 @@ describe("MCP input schemas", () => {
     });
   });
 
+  it("validates surrounding anyOf object constraints before removing placeholders", async () => {
+    const object = { type: "object", properties: { label: { type: "string" } } };
+    const schema = mcpInputSchema({ ...object, anyOf: [object] });
+    expect(await schema["~standard"].validate({ label: null })).toEqual({ value: {} });
+    expect(await schema["~standard"].validate({ label: "keep" })).toEqual({
+      value: { label: "keep" },
+    });
+    expect(await schema["~standard"].validate({ label: 1 })).toHaveProperty("issues");
+  });
+
+  it.each([false, true])(
+    "preserves explicit nulls across overlapping anyOf branches (reversed: %s)",
+    async (reversed) => {
+      const branches = [
+        { type: "object", properties: { value: { type: "string" } } },
+        { type: "object", properties: { value: { type: "null" } }, required: ["value"] },
+      ];
+      const schema = mcpInputSchema({
+        type: "object",
+        properties: { input: { anyOf: reversed ? [...branches].reverse() : branches } },
+        required: ["input"],
+      });
+      expect(await schema["~standard"].validate({ input: { value: null } })).toEqual({
+        value: { input: { value: null } },
+      });
+      expect(await schema["~standard"].validate({ input: { value: "keep" } })).toEqual({
+        value: { input: { value: "keep" } },
+      });
+    }
+  );
+
+  it("rejects alternative interpretations that remove different placeholders", async () => {
+    const branches = [
+      {
+        type: "object",
+        properties: { left: { type: "string" }, right: { type: "null" } },
+        required: ["right"],
+      },
+      {
+        type: "object",
+        properties: { right: { type: "string" }, left: { type: "null" } },
+        required: ["left"],
+      },
+    ];
+    const schema = mcpInputSchema({
+      type: "object",
+      properties: { input: { anyOf: branches } },
+      required: ["input"],
+    });
+    const result = await schema["~standard"].validate({ input: { left: null, right: null } });
+    expect(result).toHaveProperty("issues", [
+      { message: "input.input has ambiguous anyOf decoding" },
+    ]);
+  });
+
+  it("bounds expansion of small acyclic reference graphs", () => {
+    const definitions: Record<string, unknown> = { leaf: { type: "string" } };
+    let previous = "leaf";
+    for (let index = 0; index < 30; index++) {
+      const name = `level${index}`;
+      definitions[name] = {
+        type: "object",
+        properties: {
+          left: { $ref: `#/$defs/${previous}` },
+          right: { $ref: `#/$defs/${previous}` },
+        },
+        required: ["left", "right"],
+      };
+      previous = name;
+    }
+    expect(() =>
+      mcpInputSchema({
+        type: "object",
+        properties: { value: { $ref: `#/$defs/${previous}` } },
+        required: ["value"],
+        $defs: definitions,
+      })
+    ).toThrow("MCP input schema exceeds expansion limits");
+  });
+
+  it("bounds deep schemas and repeated literal metadata", () => {
+    let deep: Record<string, unknown> = { type: "string" };
+    for (let index = 0; index < 100; index++) deep = { type: "array", items: deep };
+    expect(() => mcpInputSchema({ type: "object", properties: { value: deep } })).toThrow(
+      "MCP input schema exceeds expansion limits"
+    );
+    expect(() =>
+      mcpInputSchema({
+        type: "object",
+        properties: Object.fromEntries(
+          Array.from({ length: 200 }, (_, index) => [`field${index}`, { $ref: "#/$defs/text" }])
+        ),
+        $defs: { text: { type: "string", description: "x".repeat(10_000) } },
+      })
+    ).toThrow("MCP input schema exceeds expansion limits");
+  });
+
   it.each([
     { type: "object", required: ["query"] },
     { type: "object", properties: { nested: { type: "object", required: ["query"] } } },

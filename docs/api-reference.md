@@ -290,7 +290,7 @@ Package: `tubeless`
 | [`McpServers`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L34)            | Connected servers whose tools are named `<server>__<tool>`; close them after the agent's runs. |
 | [`McpStdioOptions`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-stdio.ts#L10) | A local server process speaking JSON-RPC over stdin and stdout.                                |
 | [`McpTool`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L31)               | A tool discovered on an MCP server, called with its validated JSON arguments.                  |
-| [`McpToolResult`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-schema.ts#L189) | Content and optional structured data returned by an MCP tool call.                             |
+| [`McpToolResult`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-schema.ts#L241) | Content and optional structured data returned by an MCP tool call.                             |
 
 ### `tubeless/agent/anthropic`
 

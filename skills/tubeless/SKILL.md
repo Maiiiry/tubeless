@@ -160,6 +160,7 @@ Read the corresponding package recipe before using these features:
   and `anyOf`; unsupported structural schemas are rejected at connection.
   Required names need property definitions. Optional nullable fields are rejected
   because their explicit nulls cannot also represent omission.
+  Expanded schemas are bounded; conflicting `anyOf` decoding is rejected before dispatch.
 
 - `defineAgent`, `defineTool`, and `pipelineTool` from `tubeless/agent` for bounded in-process
   decisions over registered handlers, pipelines, and subagents. Read `docs/agents.md` and

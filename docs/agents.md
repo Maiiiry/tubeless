@@ -483,6 +483,11 @@ an omitted value from an explicit null; required nullable properties retain null
 Arguments are structurally validated before dispatch, including structural equality
 for JSON-valued `enum` and `const`; the server validates the remaining constraints,
 including formats and ranges.
+Conversion bounds source data and expanded references with shared node, depth and
+text budgets. For overlapping `anyOf` branches, a matching interpretation that
+preserves the supplied values takes precedence. Otherwise matching branches must
+decode identically; conflicting branch or sibling interpretations fail validation
+before a tool call is dispatched.
 
 Results are `{ content, structuredContent? }` from the server. A result with
 `isError` becomes a recoverable `MCP_TOOL_ERROR` observation, and JSON-RPC errors

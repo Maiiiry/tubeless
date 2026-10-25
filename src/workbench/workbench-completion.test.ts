@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { runWorkbenchCli } from "./workbench.js";
+import { runWorkbenchCli, TUBELESS_WORKBENCH_EXIT_CODE } from "./workbench.js";
 import { captureIo } from "./workbench.test-support.js";
 
 const directories: string[] = [];
@@ -216,7 +216,7 @@ describe("tubeless __complete", () => {
       [["csv", "rows.csv"], []],
       [["--format", "csv"], [":files"]],
       [["--text=rows.csv"], ["json", "csv"]],
-      [["-fcsv"], [":files"]],
+      [["-f", "csv"], [":files"]],
       [["--format", "=", "csv", "--dry-run"], [":files"]],
       [["--", "csv"], [":files"]],
     ] as const) {
@@ -229,6 +229,27 @@ describe("tubeless __complete", () => {
       "--format=csv",
     ]);
     expect((await complete(directory, "run", "import-data", "--", "--", "--")).lines).toEqual([]);
+  });
+
+  it("does not consume attached short values that pipeline commands reject", async () => {
+    const directory = await writeProject("tubeless.project.ts", "positional");
+    for (const token of ["-fcsv", "-f=csv", "-hf"]) {
+      const io = captureIo(directory);
+      expect(await runWorkbenchCli(["run", "import-data", "--", token], io)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.validation
+      );
+      expect(io.errors.join("")).toContain(`Unknown option: ${token}`);
+      expect((await complete(directory, "run", "import-data", "--", token, "")).lines).toEqual([
+        "json",
+        "csv",
+      ]);
+    }
+    // Workbench subcommands use node:util parseArgs, which does accept attached values.
+    expect((await complete(directory, "run", "-ptubeless.project.ts", "")).lines).toEqual([
+      "import-data",
+      "report",
+      ":files",
+    ]);
   });
 
   it("keeps a repeatable positional active", async () => {

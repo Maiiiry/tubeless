@@ -171,6 +171,8 @@ function scanWords(
       flag = spec.flags.find((candidate) => candidate.name === name);
       if (separator !== -1) inlineValue = word.slice(separator + 1);
     } else if (!optionsEnded && word.startsWith("-") && word.length > 1) {
+      // Pipeline commands require a single short letter; parseArgs also accepts attached values.
+      if (!splitArguments && word.length !== 2) continue;
       flag = spec.flags.find((candidate) => candidate.short === word[1]);
       if (word.length > 2) inlineValue = word.slice(2);
     } else {

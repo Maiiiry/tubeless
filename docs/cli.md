@@ -337,18 +337,19 @@ or Studio. Optional Node helpers live in `tubeless/node`.
 
 ### Executable commands
 
-| Command             | Accepts                          | Does                                                                |
-| ------------------- | -------------------------------- | ------------------------------------------------------------------- |
-| `tubeless list`     | A project file                   | Lists project pipeline IDs                                          |
-| `tubeless validate` | A YAML or JSON pipeline document | Checks document structure and metadata without loading handlers     |
-| `tubeless inspect`  | A pipeline or command export     | Shows the pipeline ID, available targets, steps, and default plan   |
-| `tubeless plan`     | A pipeline or command export     | Previews selection without executing or requiring domain options    |
-| `tubeless graph`    | A pipeline or command export     | Writes Mermaid flowchart source                                     |
-| `tubeless run`      | A pipeline ID or command export  | Infers or validates command arguments and runs the pipeline         |
-| `tubeless history`  | An optional run id               | Lists or shows recorded runs from SQLite or a finished NDJSON trace |
-| `tubeless upgrade`  | An optional `--store` path       | Rewrites an older SQLite run store after `--yes`                    |
-| `tubeless ui`       | An optional project file         | Serves the local run studio; see [studio](./studio.md)              |
-| `tubeless init`     | A deploy target                  | Scaffolds deployment files; see [init](#init)                       |
+| Command               | Accepts                          | Does                                                                |
+| --------------------- | -------------------------------- | ------------------------------------------------------------------- |
+| `tubeless list`       | A project file                   | Lists project pipeline IDs with their names and descriptions        |
+| `tubeless validate`   | A YAML or JSON pipeline document | Checks document structure and metadata without loading handlers     |
+| `tubeless inspect`    | A pipeline or command export     | Shows identity, targets, and the default structural plan            |
+| `tubeless plan`       | A pipeline or command export     | Previews selection without executing or requiring domain options    |
+| `tubeless graph`      | A pipeline or command export     | Writes Mermaid flowchart source                                     |
+| `tubeless run`        | A pipeline ID or command export  | Infers or validates command arguments and runs the pipeline         |
+| `tubeless history`    | An optional run id               | Lists or shows recorded runs from SQLite or a finished NDJSON trace |
+| `tubeless upgrade`    | An optional `--store` path       | Rewrites an older SQLite run store after `--yes`                    |
+| `tubeless ui`         | An optional project file         | Serves the local run studio; see [studio](./studio.md)              |
+| `tubeless completion` | `bash`, `zsh`, or `fish`         | Prints a shell completion script                                    |
+| `tubeless init`       | A deploy target                  | Scaffolds deployment files; see [init](#init)                       |
 
 Use `tubeless validate [--json] pipelines.yaml` for a fast document-only check.
 It supports `.yaml`, `.yml`, and `.json`; it does not resolve handlers, check the
@@ -414,6 +415,39 @@ For command help:
 tubeless run ./scripts/import.ts -- --help
 ```
 
+Help lists the command's own options first, then the shared `Pipeline controls:`
+(`--dry-run`, `--target`, `--step`, `--cache`, and similar). Each option shows its
+description followed by bracketed details such as `[required]`,
+`[integer, min: 1, default: 1]`, or `[repeatable, one of: load]`. Invalid arguments
+print each error, the usage line, and a pointer to `--help` instead of the full help.
+
+### Typos and suggestions
+
+Near-miss input gets a `Did you mean …?` hint without changing exit codes: unknown
+commands, subcommand flags, command flags after `--`, choice values, project
+pipeline IDs, plan targets and steps, and history run IDs. An unknown project
+pipeline ID also points to `tubeless list`. A requested target that is a step
+rather than a declared target says so and lists the declared targets.
+
+```text
+$ tubeless run import -- --sourc rows.txt
+Error: Unknown option: --sourc. Did you mean --source?
+```
+
+### Shell completion
+
+```sh
+eval "$(tubeless completion bash)"     # ~/.bashrc
+source <(tubeless completion zsh)      # ~/.zshrc, after compinit
+tubeless completion fish | source      # ~/.config/fish/config.fish
+```
+
+Completion covers commands, flags, project pipeline IDs from the selected project
+file, `graph --direction` values, `plan --target` and `--step` IDs, and the flags
+and choice values of the pipeline command after `tubeless run <id> --`. Project
+files are loaded to read IDs, but no handlers run. Fish omits candidates containing
+tabs because its native completion interface reserves tabs for descriptions.
+
 ## List
 
 ```
@@ -423,8 +457,10 @@ tubeless list [options]
 - `-p, --project <path>` selects the project file (default `./tubeless.project.ts`)
 - `--json` emits project metadata, pipeline IDs, and resolved project and `cwd` paths
 
-`list` evaluates the selected project file and its imports, but never executes
-pipeline handlers. It never scans the filesystem or run history for executables.
+Text output prints one pipeline per line: its ID, then its display name and
+description, aligned. `list` evaluates the selected project file and its imports,
+but never executes pipeline handlers. It never scans the filesystem or run history
+for executables.
 
 ## Inspect
 
@@ -437,6 +473,9 @@ tubeless inspect [options] <pipeline-id-or-file>
 - `--json` emits identity and the default plan as JSON
 - `--tag <tag>` requires a step tag; repeat it to require several
 - `--owner <owner>` and `--domain <domain>` match step metadata exactly
+
+Text output shows the pipeline name, description, targets, metadata, and the default
+structural plan. Use `tubeless plan` for selection previews.
 
 ## Plan
 
@@ -624,6 +663,9 @@ tubeless history [options] [run-id]
 `--store` and `--trace` cannot be combined. `--json` and `--events` cannot be
 combined. `--pipeline` applies to every output mode and both artifact sources.
 With `run-id`, both selectors must match the requested root; a mismatch is an unknown run (exit `1`).
+A run ID may be abbreviated to a unique prefix of at least four characters, matched
+against the full ID or the UUID after its `:`. An ambiguous prefix lists the
+matching runs and exits `1`.
 A pipeline with no recorded runs returns an empty list or event stream (exit `0`).
 History reads recorded IDs directly without loading a project file or command module.
 By default, history prints a run list. Supply a run ID to see that run's steps,

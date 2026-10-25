@@ -86,6 +86,19 @@ function parseNdjson(text: string): { name?: string }[] {
 }
 
 describe("runCommand", () => {
+  it("suggests workbench flag typos while preserving the application-argument guidance", async () => {
+    for (const token of ["--projet", "--projet=project.mjs"]) {
+      const io = captureIo(tmpdir());
+      expect(await runCommand([token, "pipeline.mjs"], io)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.usage
+      );
+      const error = io.errors.join("");
+      expect(error.split("\n")[0]).toBe("Error: Unknown option: --projet. Did you mean --project?");
+      expect(error).toContain("Pass application flags after --");
+      expect(io.output).toEqual([]);
+    }
+  });
+
   it("rejects --store and --trace pointing at the same path", async () => {
     const { directory } = await writeCommandFixture();
     const io = captureIo(directory);

@@ -1,0 +1,542 @@
+import { spawnSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
+import { runWorkbenchCli, TUBELESS_WORKBENCH_EXIT_CODE } from "./workbench.js";
+import { captureIo } from "./workbench.test-support.js";
+
+const directories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { force: true, recursive: true }))
+  );
+});
+
+async function writeProject(
+  fileName = "tubeless.project.ts",
+  mode: "named" | "positional" | "repeatable" = "named",
+  extraValues: readonly string[] = []
+): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "tubeless-completion-"));
+  directories.push(directory);
+  const cliModuleUrl = pathToFileURL(path.resolve("dist/cli/cli.js")).href;
+  const pipelineModuleUrl = pathToFileURL(path.resolve("dist/core/pipeline.js")).href;
+  const projectModuleUrl = pathToFileURL(path.resolve("dist/project/project.js")).href;
+  await writeFile(
+    path.join(directory, fileName),
+    `
+      import { definePipelineCommand } from ${JSON.stringify(cliModuleUrl)};
+      import { createSteps, definePipeline } from ${JSON.stringify(pipelineModuleUrl)};
+      import { defineProject } from ${JSON.stringify(projectModuleUrl)};
+      const { step } = createSteps();
+      const fetch = step("fetch", { run: () => { throw new Error("completion must not run steps"); } });
+      const publish = step("publish", { dependsOn: [fetch], run: () => undefined });
+      const imports = definePipelineCommand(
+        definePipeline({ id: "import-data", steps: [fetch], targets: [fetch] }),
+        {
+          ${mode === "named" ? "" : 'positionals: ["format", "text"],'}
+          params: {
+            verbose: { type: "boolean", default: true },
+            enabled: { type: "boolean", default: true },
+            disableMode: { type: "string", flag: "no-enabled", choices: ["soft", "hard"], optional: true },
+            text: { type: "${mode === "positional" ? "path" : "string"}", ${mode === "repeatable" ? 'multiple: true, choices: ["a", "b"],' : ""} description: "Text to import." },
+            format: { type: "string", short: "f", choices: ["json", "csv", ...${JSON.stringify(extraValues)}], ${mode === "named" ? 'default: "json",' : ""} },
+          },
+          mapOptions: () => ({}),
+          reporter: false,
+        }
+      );
+      const report = definePipeline({
+        id: "report",
+        name: "Report",
+        description: "Build the report.",
+        steps: [fetch, publish],
+        targets: [publish],
+      });
+      export default defineProject("fixture", [imports, report,
+        ...${JSON.stringify(extraValues)}.map(id => definePipeline({ id, steps: [fetch] })),
+      ]);
+    `
+  );
+  return directory;
+}
+
+async function complete(
+  cwd: string,
+  ...words: string[]
+): Promise<{
+  exitCode: number;
+  lines: string[];
+  values: string[];
+  files: boolean;
+  errors: string;
+}> {
+  const io = captureIo(cwd);
+  const exitCode = await runWorkbenchCli(["__complete", ...words], io);
+  const output = io.output.join("");
+  const fields = output === "" ? [] : output.slice(0, -1).split("\0");
+  expect(fields.length % 3).toBe(0);
+  const lines: string[] = [];
+  const values: string[] = [];
+  let files = false;
+  for (let index = 0; index < fields.length; index += 3) {
+    const [kind, value, description] = fields.slice(index, index + 3);
+    if (kind === "f") {
+      files = true;
+      lines.push(":files");
+    } else {
+      expect(kind).toBe("v");
+      values.push(value!);
+      lines.push(description ? `${value}\t${description}` : value!);
+    }
+  }
+  return {
+    exitCode,
+    lines,
+    values,
+    files,
+    errors: io.errors.join(""),
+  };
+}
+
+async function help(...argv: string[]): Promise<string> {
+  const io = captureIo(process.cwd());
+  expect(await runWorkbenchCli(argv, io)).toBe(0);
+  return io.output.join("");
+}
+
+describe("tubeless __complete", () => {
+  it("frames reserved markers and control characters as candidate data", async () => {
+    const special = [":files", "f", "v", "tab\tvalue", "line\nvalue", "back\\slash", "end\n"];
+    const directory = await writeProject("tubeless.project.ts", "named", special);
+    const ids = await complete(directory, "run", "");
+    expect(ids.values).toEqual(["import-data", "report", ...special]);
+    expect(ids.files).toBe(true);
+    const choices = await complete(directory, "run", "import-data", "--", "--format", "");
+    expect(choices.values).toEqual(["json", "csv", ...special]);
+    expect(choices.files).toBe(false);
+  });
+
+  it("offers subcommands with descriptions at the command position", async () => {
+    const all = await complete(tmpdir(), "");
+    expect(all.exitCode).toBe(0);
+    expect(all.lines).toContain("list\tList pipelines or commands in the project file");
+    expect(all.lines).toContain("completion\tPrint a shell completion script (bash, zsh, fish)");
+    expect(all.lines).toContain("help\tShow usage");
+    expect(all.lines.some((line) => line.startsWith("__complete"))).toBe(false);
+    expect((await complete(tmpdir(), "pl")).lines).toEqual([
+      "plan\tPreview step selection without executing the pipeline",
+    ]);
+  });
+
+  it("offers a subcommand's flags and fixed flag values", async () => {
+    expect((await complete(tmpdir(), "graph", "--d")).lines).toEqual([
+      "--direction",
+      "--domain",
+      "--descriptions",
+    ]);
+    const directions = ["BT", "LR", "RL", "TB", "TD"];
+    expect((await complete(tmpdir(), "graph", "--direction", "")).lines).toEqual(directions);
+    expect((await complete(tmpdir(), "graph", "-d", "")).lines).toEqual(directions);
+    expect((await complete(tmpdir(), "completion", "")).lines).toEqual(["bash", "zsh", "fish"]);
+  });
+
+  it("offers project pipeline ids plus file paths", async () => {
+    const directory = await writeProject();
+    expect((await complete(directory, "run", "")).lines).toEqual([
+      "import-data",
+      "report",
+      ":files",
+    ]);
+    expect((await complete(directory, "inspect", "--json", "re")).lines).toEqual([
+      "report",
+      ":files",
+    ]);
+    expect((await complete(directory, "history", "--pipeline", "")).lines).toEqual([]);
+    // Only the first positional is a pipeline.
+    expect((await complete(directory, "plan", "report", "")).lines).toEqual([]);
+  });
+
+  it("honors --project in every spelling", async () => {
+    const directory = await writeProject("custom.project.ts");
+    expect((await complete(directory, "run", "")).lines).toEqual([":files"]);
+    const ids = ["import-data", "report", ":files"];
+    expect((await complete(directory, "run", "--project", "custom.project.ts", "")).lines).toEqual(
+      ids
+    );
+    expect((await complete(directory, "plan", "--project=custom.project.ts", "")).lines).toEqual(
+      ids
+    );
+    expect((await complete(directory, "graph", "-p", "custom.project.ts", "")).lines).toEqual(ids);
+    // Bash splits --project=path into three words.
+    expect(
+      (await complete(directory, "inspect", "--project", "=", "custom.project.ts", "")).lines
+    ).toEqual(ids);
+  });
+
+  it("offers plan targets and steps for the selected pipeline", async () => {
+    const directory = await writeProject();
+    expect((await complete(directory, "plan", "report", "--target", "")).lines).toEqual([
+      "publish",
+    ]);
+    expect((await complete(directory, "plan", "report", "-s", "")).lines).toEqual([
+      "fetch",
+      "publish",
+    ]);
+  });
+
+  it("completes values written with = as one word or split by bash", async () => {
+    const directory = await writeProject();
+    expect((await complete(directory, "plan", "report", "--target=pu")).lines).toEqual([
+      "--target=publish",
+    ]);
+    expect((await complete(directory, "plan", "report", "--target", "=", "")).lines).toEqual([
+      "publish",
+    ]);
+    expect((await complete(directory, "plan", "report", "--json=x")).lines).toEqual([]);
+    expect((await complete(directory, "run", "import-data", "--", "--cache=r")).lines).toEqual([
+      "--cache=recompute",
+    ]);
+    expect(
+      (await complete(directory, "run", "import-data", "--", "--cache", "=", "r")).lines
+    ).toEqual(["recompute"]);
+  });
+
+  it("offers the pipeline command's own flags and choices after run <id> --", async () => {
+    const directory = await writeProject();
+    const flags = await complete(directory, "run", "import-data", "--", "--");
+    expect(flags.lines).toContain("--text\tText to import.");
+    expect(flags.lines).toContain("--format");
+    expect(flags.lines).toContain("--help\tShow command help");
+    for (const flag of ["--dry-run", "--target", "--step", "--cache"]) {
+      expect(
+        flags.lines.some((line) => line.split("\t")[0] === flag),
+        flag
+      ).toBe(true);
+    }
+    expect((await complete(directory, "run", "import-data", "--", "--format", "")).lines).toEqual([
+      "json",
+      "csv",
+    ]);
+    expect((await complete(directory, "run", "import-data", "--", "--cache", "")).lines).toEqual([
+      "use",
+      "recompute",
+      "bypass",
+    ]);
+    expect((await complete(directory, "run", "import-data", "--", "--target", "")).lines).toEqual([
+      "fetch",
+    ]);
+    expect((await complete(directory, "run", "import-data", "--", "--text", "")).lines).toEqual([]);
+  });
+
+  it("asks for file completion for file arguments and file-valued flags", async () => {
+    const directory = tmpdir();
+    for (const words of [
+      ["validate", ""],
+      ["ui", ""],
+      ["run", "--store", ""],
+      ["history", "--trace", "out"],
+      ["list", "-p", ""],
+      ["ui", "--command", ""],
+    ]) {
+      expect((await complete(directory, ...words)).lines, words.join(" ")).toEqual([":files"]);
+    }
+    expect((await complete(directory, "ui", "--host", "")).lines).toEqual([]);
+    // zsh and fish keep `--flag=path` as one word; their scripts complete after the `=`.
+    expect((await complete(directory, "run", "--project=./pr")).lines).toEqual([":files"]);
+  });
+
+  it("completes positionals in declared order and stops after the last one", async () => {
+    const directory = await writeProject("tubeless.project.ts", "positional");
+    for (const [args, expected] of [
+      [[], ["json", "csv"]],
+      [["csv"], [":files"]],
+      [["csv", "rows.csv"], []],
+      [["--format", "csv"], [":files"]],
+      [["--text=rows.csv"], ["json", "csv"]],
+      [["-f", "csv"], [":files"]],
+      [["--format", "=", "csv", "--dry-run"], [":files"]],
+      [["--", "csv"], [":files"]],
+    ] as const) {
+      expect(
+        (await complete(directory, "run", "import-data", "--", ...args, "")).lines,
+        args.join(" ")
+      ).toEqual(expected);
+    }
+    expect((await complete(directory, "run", "import-data", "--", "--format=cs")).lines).toEqual([
+      "--format=csv",
+    ]);
+    expect((await complete(directory, "run", "import-data", "--", "--", "--")).lines).toEqual([]);
+  });
+
+  it("completes ordinary positionals after the end-of-options marker", async () => {
+    for (const command of ["validate", "ui"]) {
+      expect((await complete(tmpdir(), command, "--", "")).lines).toEqual([":files"]);
+      expect((await complete(tmpdir(), command, "--", "--")).lines).toEqual([":files"]);
+      expect((await complete(tmpdir(), command, "--", "input.yaml", "")).lines).toEqual([]);
+    }
+    const directory = await writeProject();
+    expect((await complete(directory, "inspect", "--", "")).lines).toEqual([
+      "import-data",
+      "report",
+      ":files",
+    ]);
+  });
+
+  it("does not consume attached short values that pipeline commands reject", async () => {
+    const directory = await writeProject("tubeless.project.ts", "positional");
+    for (const token of ["-fcsv", "-f=csv", "-hf"]) {
+      const io = captureIo(directory);
+      expect(await runWorkbenchCli(["run", "import-data", "--", token], io)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.validation
+      );
+      expect(io.errors.join("")).toContain(`Unknown option: ${token}`);
+      expect((await complete(directory, "run", "import-data", "--", token, "")).lines).toEqual([
+        "json",
+        "csv",
+      ]);
+    }
+    // Workbench subcommands use node:util parseArgs, which does accept attached values.
+    expect((await complete(directory, "run", "-ptubeless.project.ts", "")).lines).toEqual([
+      "import-data",
+      "report",
+      ":files",
+    ]);
+  });
+
+  it("offers negated boolean flags without overriding literal no-* options", async () => {
+    const directory = await writeProject();
+    const flags = await complete(directory, "run", "import-data", "--", "--no-");
+    expect(flags.values).toContain("--no-verbose");
+    expect(flags.values).toContain("--no-dry-run");
+    expect(flags.values).toContain("--no-continue-on-error");
+    expect(flags.values.filter((value) => value === "--no-enabled")).toHaveLength(1);
+    expect(
+      (await complete(directory, "run", "import-data", "--", "--no-enabled", "")).values
+    ).toEqual(["soft", "hard"]);
+    expect(flags.values).not.toContain("--no-no-enabled");
+  });
+
+  it("keeps a repeatable positional active", async () => {
+    const directory = await writeProject("tubeless.project.ts", "repeatable");
+    expect(
+      (await complete(directory, "run", "import-data", "--", "csv", "a", "b", "")).lines
+    ).toEqual(["a", "b"]);
+    expect(
+      (await complete(directory, "run", "import-data", "--", "-f", "csv", "a", "")).lines
+    ).toEqual(["a", "b"]);
+  });
+
+  it("includes current workbench commands without reading Cloud credentials", async () => {
+    for (const command of ["agent", "auth", "cloud", "init", "upgrade"]) {
+      expect(
+        (await complete(tmpdir(), command)).lines.some((line) => line.startsWith(`${command}\t`))
+      ).toBe(true);
+    }
+    expect((await complete(tmpdir(), "cloud", "--")).lines.sort()).toEqual(
+      [
+        "--host",
+        "--workspace",
+        "--id",
+        "--input-file",
+        "--detach",
+        "--follow",
+        "--json",
+        "--help",
+      ].sort()
+    );
+  });
+
+  it("stays silent when the project cannot load", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tubeless-completion-broken-"));
+    directories.push(directory);
+    await writeFile(
+      path.join(directory, "tubeless.project.ts"),
+      `console.error("noisy"); throw new Error("broken project");`
+    );
+    for (const words of [
+      ["run", ""],
+      ["run", "missing", "--", "--"],
+      ["plan", "missing", "--target", ""],
+    ]) {
+      const result = await complete(directory, ...words);
+      expect(result.exitCode).toBe(0);
+      expect(result.errors).toBe("");
+      expect(result.lines.filter((line) => line !== ":files")).toEqual([]);
+    }
+  });
+
+  it("mirrors every subcommand's --help options", async () => {
+    const commands = [...(await help("--help")).matchAll(/^ {2}tubeless (\S+)/gm)].map(
+      (match) => match[1]!
+    );
+    expect(commands).toContain("completion");
+    for (const command of commands.filter((name) => name !== "cloud")) {
+      const rows = [
+        ...(await help(command, "--help")).matchAll(/^ +(?:-(\w), +)?--([\w-]+)( <)?/gm),
+      ];
+      const completed = (await complete(tmpdir(), command, "-")).lines
+        .map((line) => line.split("\t")[0])
+        .sort();
+      expect(completed, command).toEqual(rows.map((row) => `--${row[2]}`).sort());
+      for (const [, short, name, takesValue] of rows) {
+        // A value-taking flag completes its value, so the next word gets no flag list.
+        const expectFlags = takesValue === undefined ? completed.length : 0;
+        for (const spelling of short === undefined ? [`--${name}`] : [`--${name}`, `-${short}`]) {
+          const after = await complete(tmpdir(), command, spelling, "--");
+          expect(
+            after.lines.filter((line) => line.startsWith("--")).length,
+            `${command} ${spelling}`
+          ).toBe(expectFlags);
+        }
+      }
+    }
+  });
+});
+
+describe("tubeless command dispatch", () => {
+  it("suggests the closest command for a typo", async () => {
+    const typo = captureIo(tmpdir());
+    expect(await runWorkbenchCli(["lsit"], typo)).toBe(1);
+    expect(typo.errors.join("")).toMatch(
+      /^Error: Unknown command "lsit"\. Did you mean "list"\?\n\nUsage: tubeless/
+    );
+    const far = captureIo(tmpdir());
+    expect(await runWorkbenchCli(["deploy"], far)).toBe(1);
+    expect(far.errors.join("")).toMatch(/^Error: Unknown command "deploy"\.\n\n/);
+  });
+});
+
+describe("tubeless completion", () => {
+  for (const shell of ["bash", "zsh", "fish"] as const) {
+    it.skipIf(spawnSync(shell, ["-c", "true"]).error !== undefined)(
+      `passes framed values to the ${shell} adapter`,
+      async () => {
+        const special = [":files", "tab\tvalue", "line\nvalue", "back\\slash", "end\n"];
+        const directory = await writeProject("tubeless.project.ts", "named", special);
+        const io = captureIo(directory);
+        await runWorkbenchCli(["__complete", "run", "import-data", "--", "--format", ""], io);
+        const protocol = path.join(directory, "completion.bin");
+        await writeFile(protocol, io.output.join(""));
+        const setup =
+          shell === "fish"
+            ? `
+function tubeless; cat "$TUBELESS_COMPLETION_PROTOCOL"; end
+function commandline
+    if test "$argv[1]" = -opc; printf 'tubeless\\nrun\\n'; end
+end
+`
+            : `
+compdef() { :; }
+tubeless() { cat "$TUBELESS_COMPLETION_PROTOCOL"; }
+`;
+        const invoke =
+          shell === "bash"
+            ? `
+COMP_WORDS=(tubeless run ''); COMP_CWORD=2; _tubeless
+printf '%s\\0' "\${COMPREPLY[@]}"
+`
+            : shell === "zsh"
+              ? `
+compadd() { shift; printf '%s\\0' "$@"; }
+words=(tubeless run ''); CURRENT=3; _tubeless
+`
+              : "__tubeless_complete\n";
+        const result = spawnSync(
+          shell,
+          ["-c", setup + (await help("completion", shell)) + invoke],
+          {
+            cwd: directory,
+            env: { ...process.env, TUBELESS_COMPLETION_PROTOCOL: protocol },
+          }
+        );
+        expect(result.status, result.stderr.toString()).toBe(0);
+        const values = result.stdout
+          .toString()
+          .slice(0, -1)
+          .split("\0")
+          .map((value) => (shell === "fish" ? value.replace(/\t$/, "") : value));
+        expect(values).toEqual(
+          ["json", "csv", ...special].filter((value) => shell !== "fish" || !value.includes("\t"))
+        );
+        if (shell === "fish") {
+          await writeFile(protocol, "f\0\0\0");
+          const fileScript = `${await help("completion", "fish")}
+function tubeless; cat "$TUBELESS_COMPLETION_PROTOCOL"; end
+function commandline
+    if test "$argv[1]" = -opc; printf 'tubeless\\nrun\\n'; else; printf '%s' '--project=./pa'; end
+end
+function __fish_complete_path; printf '%s/child\\n' "$argv[1]"; end
+__tubeless_complete
+`;
+          const fileResult = spawnSync(shell, ["-c", fileScript], {
+            env: { ...process.env, TUBELESS_COMPLETION_PROTOCOL: protocol },
+          });
+          expect(fileResult.status, fileResult.stderr.toString()).toBe(0);
+          expect(fileResult.stdout.toString()).toBe("--project=./pa/child\0");
+        }
+      }
+    );
+  }
+
+  it("prints a script per shell and rejects unknown shells", async () => {
+    for (const shell of ["bash", "zsh", "fish"]) {
+      expect(await help("completion", shell)).toContain("tubeless __complete");
+    }
+    expect(await help("completion", "--help")).toContain("source <(tubeless completion zsh)");
+
+    const io = captureIo(tmpdir());
+    expect(await runWorkbenchCli(["completion", "zhs"], io)).toBe(1);
+    expect(io.errors.join("")).toContain(
+      'Error: Unsupported shell "zhs". Supported shells: bash, zsh, fish. Did you mean "zsh"?'
+    );
+    const missing = captureIo(tmpdir());
+    expect(await runWorkbenchCli(["completion"], missing)).toBe(1);
+    expect(missing.errors.join("")).toContain("Pass one shell: bash, zsh, fish.");
+  });
+
+  const syntaxChecks = [
+    ["bash", ["-n"]],
+    ["zsh", ["-n"]],
+    ["fish", ["--no-execute"]],
+  ] as const;
+  for (const [shell, args] of syntaxChecks) {
+    const available = spawnSync(shell, ["-c", "true"]).error === undefined;
+    it.skipIf(!available)(`emits a ${shell} script that parses`, async () => {
+      const result = spawnSync(shell, args, { input: await help("completion", shell) });
+      expect(result.stderr.toString()).toBe("");
+      expect(result.status).toBe(0);
+    });
+  }
+
+  it.skipIf(spawnSync("bash", ["-c", "true"]).error !== undefined)(
+    "bash strips descriptions and adds files only alongside candidates",
+    async () => {
+      const directory = await mkdtemp(path.join(tmpdir(), "tubeless-completion-bash-"));
+      directories.push(directory);
+      await writeFile(path.join(directory, "report.yaml"), "");
+      // The script discards the binary's stderr, so the stub reports its argv on fd 3.
+      const script = `${await help("completion", "bash")}
+exec 3>&2
+tubeless() {
+  printf '%s\\n' "args:$*" >&3
+  if [[ "$3" == x ]]; then printf 'f\\0\\0\\0'; return; fi
+  printf 'v\\0report\\0Build the report.\\0v\\0release\\0\\0f\\0\\0\\0'
+}
+COMP_WORDS=(tubeless run re); COMP_CWORD=2; _tubeless
+printf '%s\\n' "\${COMPREPLY[@]}"
+COMP_WORDS=(tubeless run x); COMP_CWORD=2; _tubeless
+printf 'files-only:%s\\n' "\${#COMPREPLY[@]}"
+complete -p tubeless
+`;
+      const result = spawnSync("bash", ["--norc", "-c", script], { cwd: directory });
+      expect(result.stderr.toString()).toBe("args:__complete run re\nargs:__complete run x\n");
+      expect(result.stdout.toString()).toBe(
+        "report\nrelease\nreport.yaml\nfiles-only:0\ncomplete -F _tubeless tubeless\n"
+      );
+    }
+  );
+});

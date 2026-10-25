@@ -8,6 +8,7 @@ import {
 } from "../core/pipeline-types.js";
 import { PipelineDocumentError, validatePipelineDocument } from "../project/project-document.js";
 import { renderPipelinePlan } from "../render/render.js";
+import { isWorkbenchPipelineCommand, type WorkbenchPipeline } from "./pipeline-module.js";
 import {
   DEFAULT_PIPELINE_PROJECT_FILE,
   loadPipelineProjectFile,
@@ -15,6 +16,7 @@ import {
 } from "./workbench-project-loader.js";
 import {
   errorMessage,
+  terminalSafeText,
   TUBELESS_WORKBENCH_EXIT_CODE,
   writeUsageError,
   type WorkbenchCliIo,
@@ -50,9 +52,49 @@ async function loadParsedPlanSource(
   return registration.loadPlan(io);
 }
 
+/** One terminal-safe line: control characters removed and whitespace collapsed. */
+function inlineText(value: string): string {
+  return terminalSafeText(value).replace(/\s+/g, " ").trim();
+}
+
+function optionalInlineText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = inlineText(value);
+  return text === "" ? undefined : text;
+}
+
+/** Display name (only when it differs from the id) and description of a pipeline or command. */
+function pipelineIdentityText(view: WorkbenchPipeline): { name?: string; description?: string } {
+  const source = isWorkbenchPipelineCommand(view) ? view.descriptor : view;
+  const name = "name" in source ? optionalInlineText(source.name) : undefined;
+  const description = "description" in source ? optionalInlineText(source.description) : undefined;
+  return {
+    ...(name !== undefined && name !== inlineText(view.id) ? { name } : {}),
+    ...(description !== undefined ? { description } : {}),
+  };
+}
+
+/** `Name - description`, either part alone, or undefined when neither is present. */
+function joinNameAndDescription(name?: string, description?: string): string | undefined {
+  if (name !== undefined && description !== undefined) return `${name} - ${description}`;
+  return name ?? description;
+}
+
+/** Rows of `<key>  <summary>` with summaries aligned and no trailing spaces. */
+function alignedRows(
+  rows: readonly { key: string; summary: string | undefined }[],
+  indent = ""
+): string[] {
+  const width = rows.reduce((width, { key }) => Math.max(width, key.length), 0);
+  return rows.map(({ key, summary }) =>
+    summary === undefined ? `${indent}${key}` : `${indent}${key.padEnd(width)}  ${summary}`
+  );
+}
+
 const LIST_USAGE = `Usage: tubeless list [options]
 
-List pipelines or explicitly registered commands from a Tubeless project file.
+List the pipelines and commands registered in a Tubeless project file, one per line
+with its display name and description.
 
 Options:
   -p, --project <path>  Project file (default: ./tubeless.project.ts)
@@ -82,11 +124,20 @@ export async function runList(argv: readonly string[], io: WorkbenchCliIo): Prom
 
         if (parsed.values.json) {
           commandIo.stdout.write(`${JSON.stringify(loaded.inventory, null, 2)}\n`);
-        } else {
-          for (const registration of loaded.registrations) {
-            commandIo.stdout.write(`${registration.id}\n`);
-          }
+          return TUBELESS_WORKBENCH_EXIT_CODE.success;
         }
+
+        const rows: { key: string; summary: string | undefined }[] = [];
+        for (const registration of loaded.registrations) {
+          const plan = await registration.loadPlan(commandIo);
+          if ("exitCode" in plan) return plan.exitCode;
+          const { name, description } = pipelineIdentityText(plan.view);
+          rows.push({
+            key: inlineText(plan.view.id),
+            summary: joinNameAndDescription(name, description),
+          });
+        }
+        if (rows.length > 0) commandIo.stdout.write(`${alignedRows(rows).join("\n")}\n`);
         return TUBELESS_WORKBENCH_EXIT_CODE.success;
       },
     },
@@ -240,9 +291,12 @@ export async function runInspect(argv: readonly string[], io: WorkbenchCliIo): P
           return TUBELESS_WORKBENCH_EXIT_CODE.success;
         }
 
+        const { name, description } = pipelineIdentityText(view);
         commandIo.stdout.write(
           [
-            `Pipeline ${view.id}`,
+            `Pipeline ${inlineText(view.id)}`,
+            ...(name ? [`Name: ${name}`] : []),
+            ...(description ? [`Description: ${description}`] : []),
             `Targets: ${formatIdList(view.targetIds)}`,
             `Exact steps: ${formatIdList(stepIds)}`,
             ...(plan.definition?.metadata
@@ -251,7 +305,7 @@ export async function runInspect(argv: readonly string[], io: WorkbenchCliIo): P
             ...plan.steps
               .filter((step) => step.metadata)
               .map((step) => `${step.id} metadata: ${JSON.stringify(step.metadata)}`),
-            renderPipelinePlan(plan, { explain: false }),
+            ...renderPipelinePlan(plan, { explain: false }).split("\n").map(terminalSafeText),
             "",
           ].join("\n")
         );

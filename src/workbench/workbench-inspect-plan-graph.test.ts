@@ -52,6 +52,7 @@ describe("workbench inspect, plan, and graph", () => {
 
     expect(exitCode).toBe(TUBELESS_WORKBENCH_EXIT_CODE.success);
     expect(io.errors).toEqual([]);
+    expect(io.output.join("")).toContain("\n  - Load Rows [load]:");
     const rendered = io.output.join("");
     expect(rendered).toContain("Pipeline fixture");
     expect(rendered).toContain("Targets: publish");

@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { didYouMean } from "../utilities/suggest.js";
 import type {
   CliBooleanParam,
   CliCheckpointConfig,
@@ -94,7 +95,13 @@ export function commandDescriptor(
   params: CliParamsSchema,
   positionals: readonly string[]
 ): CliCommandDescriptor {
-  const parameters = Object.entries(params).map(([key, param]): CliParameterDescriptor => {
+  // Preserve schema order for flags while ordering positional slots as declared.
+  const positionalEntries = positionals.map((key) => [key, params[key]!] as const);
+  let positionalIndex = 0;
+  const entries = Object.entries(params).map((entry) =>
+    positionals.includes(entry[0]) ? positionalEntries[positionalIndex++]! : entry
+  );
+  const parameters = entries.map(([key, param]): CliParameterDescriptor => {
     const defaultValue = param.type === "boolean" ? (param.default ?? false) : param.default;
     const required =
       param.type !== "boolean" &&
@@ -171,33 +178,44 @@ function positionalUsageToken(key: string, param: CliParam): string {
   return optional ? `[${name}]` : name;
 }
 
+/**
+ * One help-row summary: the author's description followed by a bracketed list of
+ * constraints. Implicit defaults (`false` booleans, `[]` repeatables) are omitted, and
+ * `one of:` comes last so its comma-separated choices can't blur into other entries.
+ */
 function describeParam(param: CliParam): string {
-  const parts: string[] = [];
-  if (param.description) {
-    parts.push(param.description);
-  }
-  if (param.type === "string" && param.choices) {
-    parts.push(`one of: ${param.choices.join(", ")}`);
-  }
+  const metadata: string[] = [];
   if (param.type === "number") {
-    if (param.integer) parts.push("integer");
-    if (param.min !== undefined) parts.push(`min: ${param.min}`);
-    if (param.max !== undefined) parts.push(`max: ${param.max}`);
+    if (param.integer) metadata.push("integer");
+    if (param.min !== undefined) metadata.push(`min: ${param.min}`);
+    if (param.max !== undefined) metadata.push(`max: ${param.max}`);
   }
   if (param.type === "path" && param.kind && param.mustExist) {
-    parts.push(`must be a ${param.kind}`);
+    metadata.push(`must be a ${param.kind}`);
   }
   if (isMultipleParam(param)) {
-    parts.push("repeatable; default: []");
+    metadata.push("repeatable");
   } else if (param.type === "boolean") {
-    parts.push(`default: ${param.default ?? false}`);
+    if (param.default === true) metadata.push("default: true");
   } else if (param.default !== undefined) {
-    parts.push(`default: ${JSON.stringify(param.default)}`);
+    metadata.push(`default: ${JSON.stringify(param.default)}`);
   } else if (!param.optional) {
-    parts.push("required");
+    metadata.push("required");
   }
-  return parts.join("; ");
+  if (param.env) {
+    metadata.push(`env: ${param.env}`);
+  }
+  if (param.type === "string" && param.choices) {
+    metadata.push(`one of: ${param.choices.join(", ")}`);
+  }
+  const bracketed = metadata.length > 0 ? `[${metadata.join(", ")}]` : undefined;
+  return [param.description, bracketed].filter(Boolean).join(" ");
 }
+
+const HELP_ROW: readonly [usage: string, summary: string] = [
+  "-h, --help",
+  "Show this help message.",
+];
 
 export function renderHelp(
   name: string,
@@ -205,14 +223,15 @@ export function renderHelp(
   schema: CliParamsSchema,
   positionals: readonly string[]
 ): string {
-  const rows = Object.entries(schema).map(([key, param]) => {
-    const flag = flagName(key, param);
-    const longUsage = usageToken(flag, param);
+  const domainRows: (readonly [string, string])[] = [];
+  const executionRows: (readonly [string, string])[] = [];
+  for (const [key, param] of Object.entries(schema)) {
+    const longUsage = usageToken(flagName(key, param), param);
     const usage = param.short ? `-${param.short}, ${longUsage}` : longUsage;
-    const env = param.env ? `env: ${param.env}` : undefined;
-    return [usage, [describeParam(param), env].filter(Boolean).join("; ")] as const;
-  });
-  const width = Math.max(10, ...rows.map(([usage]) => usage.length));
+    (param.group === "execution" ? executionRows : domainRows).push([usage, describeParam(param)]);
+  }
+  domainRows.push(HELP_ROW);
+  const width = Math.max(10, ...[...domainRows, ...executionRows].map(([usage]) => usage.length));
   const positionalUsage = positionals
     .map((key) => positionalUsageToken(key, schema[key]!))
     .join(" ");
@@ -220,11 +239,16 @@ export function renderHelp(
   if (description) {
     lines.push("", description);
   }
-  lines.push("", "Options:");
-  for (const [usage, summary] of rows) {
-    lines.push(summary ? `  ${usage.padEnd(width)}  ${summary}` : `  ${usage}`);
+  const pushSection = (title: string, rows: readonly (readonly [string, string])[]): void => {
+    lines.push("", title);
+    for (const [usage, summary] of rows) {
+      lines.push(summary ? `  ${usage.padEnd(width)}  ${summary}` : `  ${usage}`);
+    }
+  };
+  pushSection("Options:", domainRows);
+  if (executionRows.length > 0) {
+    pushSection("Pipeline controls:", executionRows);
   }
-  lines.push(`  ${"-h, --help".padEnd(width)}  Show this help message.`);
   return lines.join("\n");
 }
 
@@ -242,6 +266,15 @@ interface CliParamEntry {
 
 function buildParamEntries(schema: CliParamsSchema): CliParamEntry[] {
   return Object.entries(schema).map(([key, param]) => ({ key, param, flag: flagName(key, param) }));
+}
+
+/** Every spelling `tokenize` accepts after `--`, for unknown-option suggestions. */
+function longFlagNames(entries: readonly CliParamEntry[]): string[] {
+  const names = entries.flatMap(({ flag, param }) =>
+    param.type === "boolean" ? [flag, `no-${flag}`] : [flag]
+  );
+  names.push("help");
+  return names;
 }
 
 export function tokenize(
@@ -269,6 +302,7 @@ export function tokenize(
   let help = false;
   let positionalIndex = 0;
   let afterOptions = false;
+  let unknownFlagValueIndex = -1;
 
   const assignValue = (entry: CliParamEntry, value: string | boolean): void => {
     if (isMultipleParam(entry.param)) {
@@ -333,6 +367,9 @@ export function tokenize(
       continue;
     }
     if (afterOptions || !token.startsWith("-")) {
+      // The token right after an unknown `--flag` was almost certainly its value; calling
+      // it a stray argument too would only echo the unknown-option error.
+      if (index === unknownFlagValueIndex && !nextPositionalEntry()) continue;
       assignPositional(token);
       continue;
     }
@@ -379,7 +416,9 @@ export function tokenize(
 
     const entry = paramByFlag.get(name);
     if (!entry) {
-      errors.push(`Unknown option: --${body}`);
+      const suggestion = didYouMean(bodyName, longFlagNames(entries), (flag) => `--${flag}`);
+      errors.push(`Unknown option: --${body}${suggestion ? `. ${suggestion}` : ""}`);
+      if (bodyEqualsIndex === -1) unknownFlagValueIndex = index + 1;
       continue;
     }
 
@@ -469,11 +508,7 @@ export function resolveParam(
     for (const item of rawValues) {
       if (param.type === "string") {
         if (param.choices && !param.choices.includes(item)) {
-          errors.push(
-            showRawValue
-              ? `${sourceLabel} must be one of: ${param.choices.join(", ")} (got "${item}")`
-              : `${sourceLabel} must be one of: ${param.choices.join(", ")}`
-          );
+          errors.push(choiceError(sourceLabel, param.choices, item, showRawValue));
           continue;
         }
         resolved.push(item);
@@ -493,11 +528,7 @@ export function resolveParam(
       return undefined;
     }
     if (param.choices && !param.choices.includes(value)) {
-      errors.push(
-        showRawValue
-          ? `${sourceLabel} must be one of: ${param.choices.join(", ")} (got "${value}")`
-          : `${sourceLabel} must be one of: ${param.choices.join(", ")}`
-      );
+      errors.push(choiceError(sourceLabel, param.choices, value, showRawValue));
     }
     return value;
   }
@@ -552,6 +583,18 @@ function decimalNumber(rawValue: string): number | undefined {
   if (!DECIMAL_NUMBER.test(rawValue)) return undefined;
   const value = Number(rawValue);
   return Number.isFinite(value) ? value : undefined;
+}
+
+function choiceError(
+  sourceLabel: string,
+  choices: readonly string[],
+  value: string,
+  showRawValue: boolean
+): string {
+  const expected = `${sourceLabel} must be one of: ${choices.join(", ")}`;
+  if (!showRawValue) return expected;
+  const suggestion = didYouMean(value, choices);
+  return `${expected} (got "${value}")${suggestion ? `. ${suggestion}` : ""}`;
 }
 
 function validateNumberValue(

@@ -1,3 +1,4 @@
+import { parseArgs } from "node:util";
 import { describe, expect, it } from "vitest";
 import { TUBELESS_WORKBENCH_EXIT_CODE, type WorkbenchCliIo } from "./workbench-shared.js";
 import { runWorkbenchSubcommand, type WorkbenchSubcommand } from "./workbench-subcommand.js";
@@ -56,6 +57,56 @@ describe("runWorkbenchSubcommand", () => {
     expect(exitCode).toBe(TUBELESS_WORKBENCH_EXIT_CODE.usage);
     expect(io.errors.join("")).toBe(`Error: Unknown option --bad\n\n${TOY_USAGE}`);
     expect(io.output).toEqual([]);
+  });
+
+  describe("unknown long flags", () => {
+    const usage = "Usage: toy [--json] [--project <path>] <file>\n";
+    function strictCommand(): WorkbenchSubcommand<ToyParsed> {
+      return {
+        usage,
+        parse(argv) {
+          const { values, positionals } = parseArgs({
+            args: [...argv],
+            allowPositionals: true,
+            options: {
+              help: { type: "boolean", short: "h" },
+              json: { type: "boolean" },
+              project: { type: "string" },
+            },
+            strict: true,
+          });
+          return { values: { help: values.help === true }, positionals };
+        },
+        run: async () => TUBELESS_WORKBENCH_EXIT_CODE.success,
+      };
+    }
+
+    it("suggests a documented flag for a near-miss", async () => {
+      const io = captureIo();
+      const exitCode = await runWorkbenchSubcommand(strictCommand(), ["--jsn", "file"], io);
+      expect(exitCode).toBe(TUBELESS_WORKBENCH_EXIT_CODE.usage);
+      const [message] = io.errors.join("").split("\n");
+      expect(message).toBe("Error: Unknown option: --jsn. Did you mean --json?");
+    });
+
+    it("suggests from the flag name when an inline value is attached", async () => {
+      const io = captureIo();
+      await runWorkbenchSubcommand(strictCommand(), ["--projet=x.ts", "file"], io);
+      expect(io.errors.join("")).toContain("Did you mean --project?");
+    });
+
+    it("adds nothing for a far miss or an unknown short flag", async () => {
+      for (const argv of [
+        ["--verbose", "file"],
+        ["-x", "file"],
+      ]) {
+        const io = captureIo();
+        const exitCode = await runWorkbenchSubcommand(strictCommand(), argv, io);
+        expect(exitCode).toBe(TUBELESS_WORKBENCH_EXIT_CODE.usage);
+        expect(io.errors.join("")).toMatch(/^Error: Unknown option: -/);
+        expect(io.errors.join("")).not.toContain("Did you mean");
+      }
+    });
   });
 
   it("prints usage and succeeds when help is requested, before run", async () => {

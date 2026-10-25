@@ -65,6 +65,9 @@ describe("declarative pipelines", () => {
     expect(get("import")).toBe(pipeline);
     expect(() => get("missing")).toThrow('Compiled document does not define pipeline "missing".');
     expect(() => get("toString")).toThrow('Compiled document does not define pipeline "toString".');
+    expect(() => get("imprt")).toThrow(
+      'Compiled document does not define pipeline "imprt". Did you mean "import"?'
+    );
     metadata.name = "Changed";
     metadata.authors.push("Another author");
     source.pipelines.preview = source.pipelines.import;

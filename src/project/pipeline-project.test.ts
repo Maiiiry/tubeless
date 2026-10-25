@@ -8,7 +8,7 @@ import {
 } from "../core/pipeline.js";
 import { definePipelineCommand } from "../cli/cli-pipeline-command.js";
 import { defineCommand } from "../cli/cli.js";
-import { defineProject, isPipelineProject } from "./pipeline-project.js";
+import { defineProject, isPipelineProject, type AnyProjectPipeline } from "./pipeline-project.js";
 import { compilePipelineDocument } from "./project-compiler.js";
 
 const { step: alphaStep } = createSteps<{ value: string }>();
@@ -99,6 +99,14 @@ describe("pipeline project", () => {
       // @ts-expect-error Child pipelines are not registered implicitly.
       project.get("alpha");
     }).toThrow('does not define pipeline "alpha"');
+  });
+
+  it("suggests a registered id for a near-miss lookup", () => {
+    const project = defineProject("pair", [alpha, beta] as readonly AnyProjectPipeline[]);
+    expect(() => project.get("alpah")).toThrow(
+      'Project does not define pipeline "alpah". Did you mean "alpha"?'
+    );
+    expect(() => project.get("gamma")).toThrow(/^Project does not define pipeline "gamma"\.$/);
   });
 
   it("snapshots explicit adapters without changing typed pipeline lookup", async () => {

@@ -399,10 +399,10 @@ describe("definePipelineCommand", () => {
 
     const help = command.parse(["--help"]);
     expect(help.kind === "help" && help.helpText).toContain(
-      "Run exactly this step. Steps: internal, release"
+      "Run exactly this step. [repeatable, one of: internal, release]"
     );
     expect(help.kind === "help" && help.helpText).toContain(
-      "Run this declared target and its prerequisites. Targets: release"
+      "Run this declared target and its prerequisites. [repeatable, one of: release]"
     );
     const invalid = command.parse(["--target", "internal"]);
     expect(invalid.kind === "error" && invalid.errors[0]).toContain("one of: release");

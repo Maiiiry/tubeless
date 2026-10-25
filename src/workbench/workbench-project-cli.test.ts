@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -125,6 +126,7 @@ async function writeAutomaticProjectFixture(mixed = false): Promise<{
       const explicit = definePipelineCommand(definePipeline({
         id: "explicit", name: "Explicit job", description: "Print mapped text.", steps: [work],
       }), {
+        name: "Explicit CLI",
         params: { text: { type: "string" } },
         mapOptions: ({ text, resume }) => ({ message: text.toUpperCase() + (resume ? ":resumed" : "") }),
         validate: ({ text }) => text === "invalid" ? ["Text is invalid"] : [],
@@ -149,6 +151,14 @@ describe("project file workbench", () => {
     expect(JSON.parse(listIo.output.join(""))).toMatchObject({
       pipelines: ["automatic", "explicit"],
     });
+    const listTextIo = captureIo(directory);
+    expect(await runWorkbenchCli(["list"], listTextIo)).toBe(0);
+    expect(listTextIo.output.join("")).toBe(
+      "automatic\nexplicit   Explicit CLI - Print mapped text.\n"
+    );
+    const inspectIo = captureIo(directory);
+    expect(await runWorkbenchCli(["inspect", "explicit"], inspectIo)).toBe(0);
+    expect(inspectIo.output.join("")).toContain("Explicit CLI");
     const invalidIo = captureIo(directory);
     expect(
       await runWorkbenchCli(["run", "explicit", "--", "--text", "invalid"], invalidIo)
@@ -181,7 +191,7 @@ describe("project file workbench", () => {
           },
           {
             id: "explicit",
-            name: "Explicit job",
+            name: "Explicit CLI",
             description: "Print mapped text.",
             parameters: expect.arrayContaining([
               expect.objectContaining({ key: "text" }),
@@ -377,7 +387,8 @@ describe("project file workbench", () => {
     expect(io.errors).toEqual([]);
     const textIo = captureIo(directory);
     expect(await runWorkbenchCli(["list"], textIo)).toBe(TUBELESS_WORKBENCH_EXIT_CODE.success);
-    expect(textIo.output.join("")).toBe("import-data\n");
+    expect(textIo.output.join("")).toBe("import-data  Import data\n");
+    expect(textIo.errors).toEqual([]);
   });
 
   it("rejects a pipeline registered through both a project and a direct command file", async () => {
@@ -470,6 +481,51 @@ describe("project file workbench", () => {
     );
     expect(JSON.parse(io.output.join(""))).toMatchObject({ pipelineId: "import-data" });
   });
+
+  it("suggests a near-miss project pipeline id and points at list", async () => {
+    const { directory, projectFile } = await writeProjectFixture();
+    const defaultProject = path.join(directory, "tubeless.project.ts");
+
+    const nearIo = captureIo(directory);
+    expect(await runWorkbenchCli(["inspect", "import-dat"], nearIo)).toBe(
+      TUBELESS_WORKBENCH_EXIT_CODE.load
+    );
+    expect(nearIo.errors.join("")).toBe(
+      `Error: Project file ${defaultProject} does not define pipeline "import-dat". Did you mean "import-data"?\n` +
+        'Run "tubeless list" to see its 1 pipeline.\n'
+    );
+
+    const farIo = captureIo(directory);
+    expect(await runWorkbenchCli(["plan", "--project", projectFile, "export"], farIo)).toBe(
+      TUBELESS_WORKBENCH_EXIT_CODE.load
+    );
+    expect(farIo.errors.join("")).toBe(
+      `Error: Project file ${projectFile} does not define pipeline "export".\n` +
+        `Run "tubeless list --project ${projectFile}" to see its 1 pipeline.\n`
+    );
+  });
+
+  it.each(["my project.mjs", "my'project.mjs", 'my"$(printf expanded);project.mjs'])(
+    "quotes the project path in a copyable listing hint: %s",
+    async (name) => {
+      const { directory, projectFile } = await writeProjectFixture();
+      const selectedProject = path.join("config", name);
+      await writeFile(path.join(directory, selectedProject), await readFile(projectFile));
+      const io = captureIo(directory);
+      expect(await runWorkbenchCli(["inspect", "missing", "--project", selectedProject], io)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.load
+      );
+      const hint = /^Run "(.*)" to see its 1 pipeline\.$/m.exec(io.errors.join(""))?.[1];
+      expect(hint).toBeDefined();
+      const parsed = spawnSync("sh", ["-c", `tubeless() { printf '%s\\n' "$@"; }\n${hint}`]);
+      expect(parsed.status, parsed.stderr.toString()).toBe(0);
+      const args = parsed.stdout.toString().trimEnd().split("\n");
+      expect(args).toEqual(["list", "--project", selectedProject]);
+      const listIo = captureIo(directory);
+      expect(await runWorkbenchCli(args, listIo)).toBe(TUBELESS_WORKBENCH_EXIT_CODE.success);
+      expect(listIo.output.join("")).toContain("import-data");
+    }
+  );
 
   it("keeps an existing file argument ahead of default-project identity lookup", async () => {
     const { directory } = await writeProjectFixture();

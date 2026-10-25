@@ -70,4 +70,41 @@ describe("pipeline planning", () => {
       phase: "planning",
     });
   });
+
+  it("suggests near-miss ids and explains target selection failures", () => {
+    const { step } = createSteps();
+    const lint = step("lint", { run: () => true });
+    const build = step("build", { run: () => true });
+    const publish = step("publish", { dependsOn: [build], run: () => true });
+    const pipeline = definePipeline({
+      id: "selection",
+      steps: [lint, build, publish],
+      targets: [build, publish],
+    });
+    const message = (controls: { stepIds?: string[]; targets?: string[] }) =>
+      pipeline.plan(controls as never).errors.map((error) => error.message);
+
+    expect(message({ stepIds: ["buld"] })).toEqual([
+      'Pipeline selection requested unknown step ids: buld. Did you mean "build"?',
+    ]);
+    expect(message({ stepIds: ["buld", "lnt"] })).toEqual([
+      'Pipeline selection requested unknown step ids: buld, lnt. Did you mean "build" for "buld"? Did you mean "lint" for "lnt"?',
+    ]);
+    expect(message({ stepIds: ["deploy"] })).toEqual([
+      "Pipeline selection requested unknown step ids: deploy",
+    ]);
+    expect(message({ targets: ["publsh"] })).toEqual([
+      'Pipeline selection requested unknown targets: publsh. Did you mean "publish"?',
+    ]);
+    expect(message({ targets: ["deploy"] })).toEqual([
+      "Pipeline selection requested unknown targets: deploy. Declared targets: build, publish.",
+    ]);
+    expect(message({ targets: ["lint"] })).toEqual([
+      'Pipeline selection requested undeclared targets: lint. "lint" is a step, not a declared target; select steps exactly with stepIds. Declared targets: build, publish.',
+    ]);
+    const untargeted = definePipeline({ id: "untargeted", steps: [lint], targets: [] });
+    expect(untargeted.plan({ targets: ["lint" as never] }).errors[0]?.message).toBe(
+      'Pipeline untargeted requested undeclared targets: lint. "lint" is a step, not a declared target; select steps exactly with stepIds. Pipeline untargeted declares no targets.'
+    );
+  });
 });

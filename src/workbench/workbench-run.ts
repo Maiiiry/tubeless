@@ -45,16 +45,10 @@ function parseRunArgs(argv: readonly string[]) {
   const separatorIndex = argv.indexOf("--");
   const workbenchArgs = separatorIndex === -1 ? argv : argv.slice(0, separatorIndex);
   const commandArgs = separatorIndex === -1 ? [] : argv.slice(separatorIndex + 1);
-  try {
-    return {
-      ...parseSubcommandArgs(workbenchArgs, { ...REGISTRATION_OPTIONS, ...RUN_HISTORY_OPTIONS }),
-      commandArgs,
-    };
-  } catch (error) {
-    throw new Error(`${errorMessage(error)} Application flags belong after --.`, {
-      cause: error,
-    });
-  }
+  return {
+    ...parseSubcommandArgs(workbenchArgs, { ...REGISTRATION_OPTIONS, ...RUN_HISTORY_OPTIONS }),
+    commandArgs,
+  };
 }
 
 export async function runCommand(argv: readonly string[], io: WorkbenchCliIo): Promise<number> {

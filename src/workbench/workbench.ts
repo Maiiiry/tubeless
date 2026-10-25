@@ -1,4 +1,6 @@
+import { didYouMean } from "../utilities/suggest.js";
 import { runGraph, runInspect, runList, runPlan, runValidate } from "./workbench-commands.js";
+import { runComplete, runCompletion } from "./workbench-completion.js";
 import { runHistory } from "./workbench-history.js";
 import { runCommand } from "./workbench-run.js";
 import { runUpgrade } from "./workbench-upgrade.js";
@@ -11,25 +13,78 @@ import { runUi } from "./workbench-ui.js";
 
 export { TUBELESS_WORKBENCH_EXIT_CODE, type WorkbenchCliIo } from "./workbench-shared.js";
 
+/** Public subcommands in usage order; dispatch, typo suggestions, and completion share it. */
+const WORKBENCH_COMMANDS = [
+  { name: "list", description: "List pipelines or commands in the project file", run: runList },
+  {
+    name: "validate",
+    description: "Check a YAML or JSON pipeline document without loading handlers",
+    run: runValidate,
+  },
+  {
+    name: "inspect",
+    description: "Show pipeline identity and the default structural plan",
+    run: runInspect,
+  },
+  {
+    name: "plan",
+    description: "Preview step selection without executing the pipeline",
+    run: runPlan,
+  },
+  { name: "graph", description: "Generate Mermaid flowchart source", run: runGraph },
+  {
+    name: "run",
+    description: "Execute a project pipeline or a pipeline or command file",
+    run: runCommand,
+  },
+  {
+    name: "history",
+    description: "Show recorded runs from the local SQLite store",
+    run: runHistory,
+  },
+  {
+    name: "upgrade",
+    description: "Rewrite an older SQLite run store before writing to it",
+    run: runUpgrade,
+  },
+  {
+    name: "agent",
+    description: "Prompt a workspace agent with a live execution DAG",
+    run: async (argv, io) => (await import("./workbench-agent.js")).runAgent(argv, io),
+  },
+  {
+    name: "init",
+    description: "Scaffold a deployment (cloudflare)",
+    run: async (argv, io) => (await import("./workbench-init.js")).runInit(argv, io),
+  },
+  {
+    name: "auth",
+    description: "Sign in to Tubeless Cloud",
+    run: async (argv, io) => (await import("./workbench-auth.js")).runAuth(argv, io),
+  },
+  {
+    name: "cloud",
+    description: "List and run deployed Cloud pipelines",
+    run: async (argv, io) => (await import("./workbench-cloud.js")).runCloud(argv, io),
+  },
+  { name: "ui", description: "Open the optional local run studio", run: runUi },
+  {
+    name: "completion",
+    description: "Print a shell completion script (bash, zsh, fish)",
+    run: runCompletion,
+  },
+] as const satisfies readonly {
+  name: string;
+  description: string;
+  run(argv: readonly string[], io: WorkbenchCliIo): Promise<number>;
+}[];
+
 const WORKBENCH_USAGE = `Usage: tubeless <command> [options] <registered-id|pipeline-or-command-file>
 
 Inspect, plan, visualize, or safely run exported tubeless workflows.
 
 Commands:
-  tubeless list      List pipelines or commands in the project file
-  tubeless validate  Check a YAML or JSON pipeline document without loading handlers
-  tubeless inspect   Show pipeline identity and the default structural plan
-  tubeless plan      Preview step selection without executing the pipeline
-  tubeless graph     Generate Mermaid flowchart source
-  tubeless run       Execute a project pipeline or a pipeline or command file
-  tubeless agent     Prompt a workspace agent with a live execution DAG
-  tubeless history   Show recorded runs from the local SQLite store
-  tubeless upgrade   Rewrite an older SQLite run store before writing to it
-  tubeless ui        Open the optional local run studio
-  tubeless init      Scaffold a deployment (cloudflare)
-  tubeless auth      Sign in to Tubeless Cloud
-  tubeless cloud     List and run deployed Cloud pipelines
-
+${WORKBENCH_COMMANDS.map(({ name, description }) => `  tubeless ${name.padEnd(10)}  ${description}\n`).join("")}
 Run tubeless <command> --help for command-specific options.
 `;
 
@@ -46,30 +101,16 @@ export async function runWorkbenchCli(
   if (command === undefined) {
     return writeUsageError(io, "Pass a command.", WORKBENCH_USAGE);
   }
-  if (command === "auth") {
-    const { runAuth } = await import("./workbench-auth.js");
-    return runAuth(commandArgs, io);
-  }
-  if (command === "init") {
-    const { runInit } = await import("./workbench-init.js");
-    return runInit(commandArgs, io);
-  }
-  if (command === "cloud") {
-    const { runCloud } = await import("./workbench-cloud.js");
-    return runCloud(commandArgs, io);
-  }
-  if (command === "agent") {
-    const { runAgent } = await import("./workbench-agent.js");
-    return runAgent(commandArgs, io);
-  }
-  if (command === "list") return runList(commandArgs, io);
-  if (command === "validate") return runValidate(commandArgs, io);
-  if (command === "inspect") return runInspect(commandArgs, io);
-  if (command === "plan") return runPlan(commandArgs, io);
-  if (command === "graph") return runGraph(commandArgs, io);
-  if (command === "run") return runCommand(commandArgs, io);
-  if (command === "history") return runHistory(commandArgs, io);
-  if (command === "upgrade") return runUpgrade(commandArgs, io);
-  if (command === "ui") return runUi(commandArgs, io);
-  return writeUsageError(io, `Unknown command ${JSON.stringify(command)}.`, WORKBENCH_USAGE);
+  // Hidden protocol command behind the generated shell completion scripts.
+  if (command === "__complete") return runComplete(commandArgs, io, WORKBENCH_COMMANDS);
+  const entry = WORKBENCH_COMMANDS.find(({ name }) => name === command);
+  if (entry) return entry.run(commandArgs, io);
+  const suggestion = didYouMean(command, [...WORKBENCH_COMMANDS.map(({ name }) => name), "help"]);
+  return writeUsageError(
+    io,
+    suggestion === undefined
+      ? `Unknown command ${JSON.stringify(command)}.`
+      : `Unknown command ${JSON.stringify(command)}. ${suggestion}`,
+    WORKBENCH_USAGE
+  );
 }

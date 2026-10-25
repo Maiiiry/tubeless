@@ -22,7 +22,12 @@ import {
   type CliParamsSchema,
   type CliParseResult,
 } from "./cli-types.js";
-import { isCliValidationError, isPipelineExecutionError, toExitCode } from "./cli-exit.js";
+import {
+  cliValidationReportLines,
+  isCliValidationError,
+  isPipelineExecutionError,
+  toExitCode,
+} from "./cli-exit.js";
 
 function resolveContext(overrides?: Partial<CliContext>): CliContext {
   return {
@@ -324,11 +329,9 @@ export function createCommand<const TSchema extends CliParamsSchema, TResult = v
       return;
     }
     if (result.kind === "error") {
-      for (const error of result.errors) {
-        context.log.error(`Error: ${error}`);
+      for (const line of cliValidationReportLines(result.errors, result.helpText)) {
+        context.log.error(line);
       }
-      context.log.error("");
-      context.log.error(result.helpText);
       process.exitCode = mainExits?.validation ?? 1;
       return;
     }

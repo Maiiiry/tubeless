@@ -15,6 +15,7 @@ import {
   DEFAULT_PIPELINE_RUN_STORE,
   terminalSafeText,
   errorMessage,
+  shellWord,
   TUBELESS_WORKBENCH_EXIT_CODE,
   writeCliChunk,
   writeUsageError,
@@ -148,10 +149,6 @@ function resolveRunIdPrefix(
       terminalSafeText(`Run "${listCommand}" to list recorded runs.`),
     ].join("\n"),
   };
-}
-
-function shellWord(value: string): string {
-  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 function historyListCommand(values: { pipeline?: string; store?: string; trace?: string }): string {

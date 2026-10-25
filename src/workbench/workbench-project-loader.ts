@@ -14,6 +14,7 @@ import {
   errorMessage,
   loadPlanSource,
   loadWorkbenchModule,
+  shellWord,
   TUBELESS_WORKBENCH_EXIT_CODE,
   writeUsageError,
   type WorkbenchCliIo,
@@ -213,7 +214,9 @@ export async function resolveWorkbenchRegistration(
   const suggestion = didYouMean(target, ids);
   const count = loaded.registrations.length;
   const listCommand =
-    projectFile === undefined ? "tubeless list" : `tubeless list --project ${projectFile}`;
+    projectFile === undefined
+      ? "tubeless list"
+      : `tubeless list --project ${shellWord(projectFile)}`;
   const hint =
     count === 0
       ? "The project defines no pipelines."

@@ -31,6 +31,11 @@ export function terminalSafeText(value: string): string {
   );
 }
 
+/** Preserve one argument when a printed command is copied into a POSIX shell. */
+export function shellWord(value: string): string {
+  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 function abortReason(signal?: AbortSignal): Error {
   return signal?.reason instanceof Error ? signal.reason : new Error("Aborted");
 }

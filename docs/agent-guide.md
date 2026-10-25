@@ -441,6 +441,8 @@ read when a pipeline needs them.
   from `tubeless/agent/mcp` and pass `tools: mcp.tools` (named `<server>__<tool>`).
   Connect inside the function that runs the agent, not at module scope, and close
   the servers afterwards (`await using`). Inventories are fixed at connection.
+  Inputs support fixed-property objects, homogeneous arrays and `anyOf`; unsupported
+  structural schemas fail at connection rather than during an agent's run.
   Read [MCP servers](./agents.md#connect-mcp-servers) and adapt the
   [MCP recipe](../examples/agent-mcp.ts).
 

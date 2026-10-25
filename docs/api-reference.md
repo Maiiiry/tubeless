@@ -284,13 +284,13 @@ Package: `tubeless`
 
 | Symbol                                                                                            | Description                                                                                    |
 | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [`connectMcpServers`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L167)    | Connect MCP servers and expose their tools to an agent, named `<server>__<tool>`.              |
-| [`McpHttpOptions`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-http.ts#L11)   | A remote server reached over Streamable HTTP.                                                  |
-| [`McpServer`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L26)             | A Streamable HTTP endpoint (`url`) or a local stdio command (`command`).                       |
-| [`McpServers`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L33)            | Connected servers whose tools are named `<server>__<tool>`; close them after the agent's runs. |
+| [`connectMcpServers`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L182)    | Connect MCP servers and expose their tools to an agent, named `<server>__<tool>`.              |
+| [`McpHttpOptions`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-http.ts#L10)   | A remote server reached over Streamable HTTP.                                                  |
+| [`McpServer`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L27)             | A Streamable HTTP endpoint (`url`) or a local stdio command (`command`).                       |
+| [`McpServers`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L34)            | Connected servers whose tools are named `<server>__<tool>`; close them after the agent's runs. |
 | [`McpStdioOptions`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-stdio.ts#L10) | A local server process speaking JSON-RPC over stdin and stdout.                                |
-| [`McpTool`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L30)               | A tool discovered on an MCP server, called with its validated JSON arguments.                  |
-| [`McpToolResult`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-schema.ts#L151) | Content and optional structured data returned by an MCP tool call.                             |
+| [`McpTool`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L31)               | A tool discovered on an MCP server, called with its validated JSON arguments.                  |
+| [`McpToolResult`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-schema.ts#L167) | Content and optional structured data returned by an MCP tool call.                             |
 
 ### `tubeless/agent/anthropic`
 

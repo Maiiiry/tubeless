@@ -3,58 +3,74 @@ import { isRecord } from "./mcp-session.js";
 
 type Json = Readonly<Record<string, unknown>>;
 
-const mapValues = (value: Json, map: (child: unknown, key: string) => unknown) =>
-  Object.fromEntries(Object.entries(value).map(([key, child]) => [key, map(child, key)]));
-
 const objectSchema = (schema: Json) =>
   schema.type === "object" ||
   (Array.isArray(schema.type) && schema.type.includes("object")) ||
   Object.hasOwn(schema, "properties");
 
-/** Inline local `#/$defs` and `#/definitions` references; recursive schemas are unsupported. */
-function inline(schema: unknown, root: Json, seen: readonly string[] = []): unknown {
-  if (Array.isArray(schema)) return schema.map((child) => inline(child, root, seen));
-  if (!isRecord(schema)) return schema;
+// These constructs cannot be rewritten and decoded with the same structural rules.
+const UNSUPPORTED = [
+  "oneOf",
+  "allOf",
+  "prefixItems",
+  "not",
+  "if",
+  "then",
+  "else",
+  "contains",
+  "additionalItems",
+  "patternProperties",
+  "dependentSchemas",
+  "dependencies",
+  "unevaluatedProperties",
+  "unevaluatedItems",
+  "$dynamicRef",
+  "$recursiveRef",
+];
+
+/** Inline references and rewrite supported schema positions in one traversal. */
+function strict(
+  schema: unknown,
+  root: Json,
+  optional: WeakSet<object>,
+  seen: readonly string[] = []
+): Json {
+  if (!isRecord(schema)) throw new Error("MCP input schemas must be JSON Schema objects");
+  for (const keyword of UNSUPPORTED)
+    if (Object.hasOwn(schema, keyword))
+      throw new Error(`Unsupported MCP schema keyword ${keyword}`);
+  if (schema.additionalProperties !== undefined && schema.additionalProperties !== false)
+    throw new Error("MCP input schemas do not support free-form objects");
+  if (Array.isArray(schema.items)) throw new Error("MCP input schemas do not support tuple items");
   const { $ref, ...rest } = schema;
   if (typeof $ref === "string") {
-    const match = /^#\/(\$defs|definitions)\/([^/]+)$/.exec($ref);
-    const target =
-      match && isRecord(root[match[1]!]) ? (root[match[1]!] as Json)[match[2]!] : undefined;
-    if (!match || target === undefined) throw new Error(`Unsupported MCP schema reference ${$ref}`);
+    const match = /^#\/(\$defs|definitions)\/(.+)$/.exec($ref);
+    let target: unknown = root;
+    for (const part of $ref.slice(2).split("/")) {
+      const key = part.replace(/~1/g, "/").replace(/~0/g, "~");
+      target = isRecord(target) && Object.hasOwn(target, key) ? target[key] : undefined;
+    }
+    if (!match || !isRecord(target)) throw new Error(`Unsupported MCP schema reference ${$ref}`);
     if (seen.includes($ref)) throw new Error(`Recursive MCP schema reference ${$ref}`);
-    return inline({ ...(target as Json), ...rest }, root, [...seen, $ref]);
+    return strict({ ...target, ...rest }, root, optional, [...seen, $ref]);
   }
   const { $defs: _defs, definitions: _definitions, $schema: _dialect, ...body } = rest;
-  return mapValues(body, (child, key) =>
-    // Literal values are data, not schemas.
-    ["const", "enum", "default", "examples"].includes(key) ? child : inline(child, root, seen)
-  );
-}
-
-const SUBSCHEMAS = ["items", "not", "if", "then", "else", "contains", "additionalItems"];
-const SCHEMA_LISTS = ["anyOf", "oneOf", "allOf", "prefixItems"];
-
-/**
- * Require every property, admitting null for optional ones, and close every object.
- * Each nullable wrapper is recorded so decoding can recognize an omitted property.
- */
-function strict(schema: unknown, optional: WeakSet<object>): unknown {
-  if (!isRecord(schema)) return schema;
-  const result: Record<string, unknown> = { ...schema };
-  for (const key of SUBSCHEMAS)
-    if (isRecord(schema[key])) result[key] = strict(schema[key], optional);
-  for (const key of SCHEMA_LISTS)
-    if (Array.isArray(schema[key]))
-      result[key] = (schema[key] as unknown[]).map((child) => strict(child, optional));
+  const result: Record<string, unknown> = { ...body };
+  if (schema.items !== undefined) result.items = strict(schema.items, root, optional, seen);
+  if (Array.isArray(schema.anyOf))
+    result.anyOf = schema.anyOf.map((child) => strict(child, root, optional, seen));
   if (!objectSchema(schema)) return result;
   const properties = isRecord(schema.properties) ? schema.properties : {};
   const required = Array.isArray(schema.required) ? schema.required : [];
-  result.properties = mapValues(properties, (child, name) => {
-    if (required.includes(name)) return strict(child, optional);
-    const wrapper = { anyOf: [strict(child, optional), { type: "null" }] };
-    optional.add(wrapper);
-    return wrapper;
-  });
+  result.properties = Object.fromEntries(
+    Object.entries(properties).map(([name, child]) => {
+      const field = strict(child, root, optional, seen);
+      if (required.includes(name)) return [name, field];
+      const wrapper = { anyOf: [field, { type: "null" }] };
+      optional.add(wrapper);
+      return [name, wrapper];
+    })
+  );
   result.required = Object.keys(properties);
   result.additionalProperties = false;
   return result;
@@ -101,16 +117,16 @@ function decode(schema: unknown, value: unknown, path: string, optional: WeakSet
   const properties = isRecord(schema.properties) ? schema.properties : {};
   for (const name of Array.isArray(schema.required) ? schema.required : [])
     if (!Object.hasOwn(value, name)) throw new Error(`${path}.${name} is required`);
-  const decoded: Record<string, unknown> = {};
+  const decoded: [string, unknown][] = [];
   for (const [name, child] of Object.entries(value)) {
     const property = properties[name];
     if (!Object.hasOwn(properties, name)) {
       if (schema.additionalProperties === false) throw new Error(`${path}.${name} is not allowed`);
-      decoded[name] = child;
+      decoded.push([name, child]);
     } else if (!(child === null && isRecord(property) && optional.has(property)))
-      decoded[name] = decode(property, child, `${path}.${name}`, optional);
+      decoded.push([name, decode(property, child, `${path}.${name}`, optional)]);
   }
-  return decoded;
+  return Object.fromEntries(decoded);
 }
 
 function decodeAny(options: unknown[], value: unknown, path: string, optional: WeakSet<object>) {
@@ -126,10 +142,10 @@ function decodeAny(options: unknown[], value: unknown, path: string, optional: W
 
 /** Adapt an MCP tool input schema to a strict model descriptor and an argument decoder. */
 export function mcpInputSchema(inputSchema: unknown): StandardSchemaV1<Record<string, unknown>> {
-  if (!isRecord(inputSchema) || !objectSchema(inputSchema))
+  if (!isRecord(inputSchema) || inputSchema.type !== "object")
     throw new Error("MCP tool inputSchema must be a JSON Schema object");
   const optional = new WeakSet<object>();
-  const descriptor = strict(inline(inputSchema, inputSchema), optional) as Json;
+  const descriptor = strict(inputSchema, inputSchema, optional);
   return {
     "~standard": {
       version: 1,

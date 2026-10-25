@@ -1,4 +1,4 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { awaitWithAbort, throwIfAborted } from "../utilities/abort.js";
 import {
   MAX_MESSAGE_BYTES,
   parseMessage,
@@ -25,12 +25,30 @@ export async function stdioTransport(
 ): Promise<McpTransport> {
   // Loaded lazily so HTTP-only applications never touch Node process APIs.
   const { spawn } = await import("node:child_process");
-  const child: ChildProcessWithoutNullStreams = spawn(options.command, [...(options.args ?? [])], {
+  const grouped = process.platform !== "win32";
+  const child = spawn(options.command, [...(options.args ?? [])], {
     cwd: options.cwd,
     env: { ...process.env, ...options.env },
     stdio: ["pipe", "pipe", "pipe"],
+    detached: grouped,
+    windowsHide: true,
   });
   const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  let closing: Promise<void> | undefined;
+  const kill = (signal: NodeJS.Signals) => {
+    if (child.pid === undefined) return;
+    try {
+      if (grouped) process.kill(-child.pid, signal);
+      else child.kill(signal);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
+    }
+  };
+  const waitForClose = () =>
+    awaitWithAbort(exited, AbortSignal.timeout(CLOSE_GRACE_MS), "MCP shutdown").then(
+      () => true,
+      () => false
+    );
   let stderr = "";
   const fail = (detail: string) =>
     events.fail(
@@ -55,39 +73,47 @@ export async function stdioTransport(
       while ((newline = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, newline).trim();
         buffer = buffer.slice(newline + 1);
+        if (Buffer.byteLength(line) > MAX_MESSAGE_BYTES)
+          throw new Error("MCP message exceeds 16 MiB");
         if (line) events.receive(parseMessage(line));
       }
-      if (buffer.length > MAX_MESSAGE_BYTES) throw new Error("MCP message exceeds 16 MiB");
+      if (Buffer.byteLength(buffer) > MAX_MESSAGE_BYTES)
+        throw new Error("MCP message exceeds 16 MiB");
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
-      child.kill("SIGKILL");
+      kill("SIGKILL");
     }
   });
 
   return {
-    send: (message) =>
-      new Promise<void>((resolve, reject) => {
+    async send(message, signal) {
+      throwIfAborted(signal, "Send MCP message");
+      await new Promise<void>((resolve, reject) => {
         child.stdin.write(`${JSON.stringify(message)}\n`, (error) =>
           error ? reject(error) : resolve()
         );
-      }),
-    async close() {
-      if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
-      // Spec shutdown: close input, then escalate if the server does not exit.
-      child.stdin.end();
-      for (const signal of ["SIGTERM", "SIGKILL"] as const) {
-        let timer: NodeJS.Timeout | undefined;
-        const graceful = await Promise.race([
-          exited.then(() => true),
-          new Promise<boolean>((resolve) => {
-            timer = setTimeout(() => resolve(false), CLOSE_GRACE_MS);
-          }),
-        ]);
-        clearTimeout(timer);
-        if (graceful) return;
-        child.kill(signal);
-      }
-      await exited;
+      });
+    },
+    close() {
+      closing ??= (async () => {
+        try {
+          if (child.pid === undefined) return;
+          child.stdin.end();
+          for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+            if (await waitForClose()) return;
+            kill(signal);
+          }
+          await waitForClose();
+        } finally {
+          // A launcher may exit before its descendants, or a descendant may escape its group.
+          kill("SIGKILL");
+          child.stdin.destroy();
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.unref();
+        }
+      })();
+      return closing;
     },
   };
 }

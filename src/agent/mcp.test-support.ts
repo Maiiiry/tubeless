@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer } from "node:http";
 import { createInterface } from "node:readline";
 
 type Message = {
@@ -106,7 +106,7 @@ export function createFakeMcpServer() {
 /** Serve the fake over Streamable HTTP, answering tool calls as event streams. */
 export async function serveFakeMcpHttp(): Promise<{
   url: string;
-  server: Server;
+  close(): Promise<void>;
   fake: ReturnType<typeof createFakeMcpServer>;
   requests: { method: string; session?: string; version?: string; auth?: string }[];
 }> {
@@ -144,7 +144,15 @@ export async function serveFakeMcpHttp(): Promise<{
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as { port: number };
-  return { url: `http://127.0.0.1:${port}/mcp`, server, fake, requests };
+  return {
+    url: `http://127.0.0.1:${port}/mcp`,
+    fake,
+    requests,
+    async close() {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
 }
 
 // Executed directly, speak newline-delimited JSON-RPC over stdio.

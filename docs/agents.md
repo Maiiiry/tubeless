@@ -459,20 +459,26 @@ Tools are named `<server>__<tool>`, with characters outside `[A-Za-z0-9_-]`
 replaced by `_`; server names use letters, digits and hyphens. `tools` is an
 ordinary registry: spread it beside custom tools or pass `tools: ["name"]` per
 server to expose only an allowlist. Each server accepts `timeoutMs` (default 60000) per request.
+Discovery rejects repeated cursors and is bounded to 1024 pages and 4096 tools per server.
 
 Inventories are discovered once at connection, so the agent definition, its
 capability fingerprints and durable checkpoints see a fixed set. A server that
 changes its tools changes the agent's definition identity. Connect inside the
 function that runs the agent rather than at module scope, so importing a project
 starts no processes, and close the connection after the last run, as in the
-[MCP recipe](../examples/agent-mcp.ts). Calls after `close()` fail.
+[MCP recipe](../examples/agent-mcp.ts). Calls after `close()` fail. Closing aborts
+active HTTP requests and bounds stdio shutdown, terminating the owned process
+group on POSIX. Descendants that escape that group may outlive the connection.
 
 MCP input schemas are rewritten to the strict form model providers require:
 optional properties become required and nullable, every object is closed, and
 local `$defs` references are inlined. Nulls supplied for optional properties are
-removed before the call. Free-form objects and recursive references are not
-supported. Arguments are structurally validated before dispatch; the server
-validates the rest.
+removed before the call, including inside `anyOf` branches and array items.
+The adapter supports fixed-property objects, homogeneous arrays and `anyOf`.
+It rejects free-form objects, recursive references, tuple schemas, `oneOf`,
+`allOf`, conditionals and other unsupported structural constructs at connection
+time. Arguments are structurally validated before dispatch; the server validates
+the remaining constraints, including formats and ranges.
 
 Results are `{ content, structuredContent? }` from the server. A result with
 `isError` becomes a recoverable `MCP_TOOL_ERROR` observation, and JSON-RPC errors

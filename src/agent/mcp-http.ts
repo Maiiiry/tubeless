@@ -2,7 +2,6 @@ import {
   isRecord,
   MAX_MESSAGE_BYTES,
   parseMessage,
-  type McpMessage,
   type McpTransport,
   type McpTransportEvents,
 } from "./mcp-session.js";
@@ -12,6 +11,17 @@ export interface McpHttpOptions {
   readonly url: string | URL;
   /** Sent with every request, for example an Authorization header. */
   readonly headers?: Readonly<Record<string, string>>;
+}
+
+/** Preserve CRLF pairs when a network chunk ends between their two bytes. */
+async function* eventText(body: ReadableStream<Uint8Array>) {
+  let trailingCR = "";
+  for await (const chunk of text(body)) {
+    const next = trailingCR + chunk;
+    trailingCR = next.endsWith("\r") ? "\r" : "";
+    yield (trailingCR ? next.slice(0, -1) : next).replace(/\r\n?/g, "\n");
+  }
+  if (trailingCR) yield "\n";
 }
 
 /** Decode a bounded response body as text chunks. */
@@ -44,8 +54,8 @@ async function* messages(response: Response) {
     return;
   }
   let buffer = "";
-  for await (const chunk of text(response.body)) {
-    buffer += chunk.replace(/\r\n?/g, "\n");
+  for await (const chunk of eventText(response.body)) {
+    buffer += chunk;
     let boundary: number;
     while ((boundary = buffer.indexOf("\n\n")) >= 0) {
       const data = buffer
@@ -67,6 +77,10 @@ export function httpTransport(
   events: Pick<McpTransportEvents, "receive">
 ): McpTransport {
   const url = new URL(options.url);
+  if (!["https:", "http:"].includes(url.protocol))
+    throw new Error(`MCP server ${label} requires an HTTP or HTTPS URL`);
+  const lifetime = new AbortController();
+  let closing: Promise<void> | undefined;
   let session: string | undefined;
   let version: string | undefined;
   const headers = () => ({
@@ -78,11 +92,12 @@ export function httpTransport(
   });
   return {
     async send(message, signal) {
+      if (lifetime.signal.aborted) throw new Error(`MCP server ${label} is closed`);
       const response = await fetch(url, {
         method: "POST",
         headers: headers(),
         body: JSON.stringify(message),
-        signal,
+        signal: AbortSignal.any([signal, lifetime.signal]),
       });
       if (!response.ok) {
         await response.body?.cancel().catch(() => {});
@@ -98,16 +113,25 @@ export function httpTransport(
             version = String(reply.result.protocolVersion);
         }
         events.receive(reply);
+        if (answered && message.id !== undefined) break;
       }
       if (!answered) throw new Error(`MCP server ${label} closed the stream without a response`);
     },
-    async close() {
-      if (session === undefined) return;
-      // Servers may refuse explicit termination with 405; the session then expires on its own.
-      await fetch(url, { method: "DELETE", headers: headers(), signal: AbortSignal.timeout(5_000) })
-        .then((response) => response.body?.cancel())
-        .catch(() => {});
-      session = undefined;
+    close() {
+      closing ??= (async () => {
+        lifetime.abort();
+        if (session === undefined) return;
+        // Servers may refuse explicit termination with 405; the session then expires on its own.
+        await fetch(url, {
+          method: "DELETE",
+          headers: headers(),
+          signal: AbortSignal.timeout(5_000),
+        })
+          .then((response) => response.body?.cancel())
+          .catch(() => {});
+        session = undefined;
+      })();
+      return closing;
     },
   };
 }

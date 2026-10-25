@@ -1,4 +1,5 @@
 import type { AgentTool } from "./agent-types.js";
+import { throwIfAborted } from "../utilities/abort.js";
 import { defineTool, ToolError } from "./tools.js";
 import { httpTransport, type McpHttpOptions } from "./mcp-http.js";
 import { mcpInputSchema, mcpResultSchema, type McpToolResult } from "./mcp-schema.js";
@@ -52,6 +53,7 @@ interface McpToolInfo {
 }
 
 const MAX_TOOLS = 4096;
+const MAX_TOOL_PAGES = 1024;
 const nonblank = (value: unknown): value is string => typeof value === "string" && !!value.trim();
 
 /** Validate one server entry before any connection starts. */
@@ -77,8 +79,12 @@ function plan(label: string, server: McpServer): ServerPlan {
 /** List every tool, following pagination, and parse the fields the adapter relies on. */
 async function discover(session: McpSession, label: string, signal?: AbortSignal) {
   const tools: McpToolInfo[] = [];
-  let cursor: unknown;
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  let pages = 0;
   do {
+    if (++pages > MAX_TOOL_PAGES)
+      throw new Error(`MCP server ${label} exceeds ${MAX_TOOL_PAGES} tool pages`);
     const page = await session.request("tools/list", cursor ? { cursor } : {}, signal);
     if (!isRecord(page) || !Array.isArray(page.tools))
       throw new Error(`MCP server ${label} returned an invalid tool list`);
@@ -89,8 +95,14 @@ async function discover(session: McpSession, label: string, signal?: AbortSignal
       tools.push({ name: tool.name, description, inputSchema: tool.inputSchema });
     }
     if (tools.length > MAX_TOOLS) throw new Error(`MCP server ${label} exceeds ${MAX_TOOLS} tools`);
+    if (page.nextCursor !== undefined && !nonblank(page.nextCursor))
+      throw new Error(`MCP server ${label} returned an invalid tool cursor`);
     cursor = page.nextCursor;
-  } while (nonblank(cursor));
+    if (cursor !== undefined) {
+      if (cursors.has(cursor)) throw new Error(`MCP server ${label} repeated a tool cursor`);
+      cursors.add(cursor);
+    }
+  } while (cursor !== undefined);
   return tools;
 }
 
@@ -120,7 +132,10 @@ function bridge(
       } catch (error) {
         // Protocol errors such as unknown tools or invalid arguments are observations.
         if (error instanceof McpRpcError)
-          throw new ToolError("MCP_PROTOCOL_ERROR", `${error.code}: ${error.message}`);
+          throw new ToolError(
+            "MCP_PROTOCOL_ERROR",
+            `${error.code}: ${error.message}`.slice(0, 4096)
+          );
         throw error;
       }
       if (isRecord(result) && result.isError === true)
@@ -168,6 +183,7 @@ export async function connectMcpServers<const Servers extends Readonly<Record<st
   servers: Servers,
   options: { readonly signal?: AbortSignal } = {}
 ): Promise<McpServers<keyof Servers & string>> {
+  throwIfAborted(options.signal, "Connect MCP servers");
   const plans = Object.entries(servers).map(([label, server]) => plan(label, server));
   const settled = await Promise.allSettled(plans.map((server) => connect(server, options.signal)));
   const connected = settled.flatMap((result) =>

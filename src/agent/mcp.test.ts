@@ -132,11 +132,12 @@ describe("MCP servers", () => {
   });
 
   it("speaks Streamable HTTP with session headers, event streams, pings, and cancellation", async () => {
-    const { url, server, fake, requests } = await serveFakeMcpHttp();
-    open.push({ close: () => new Promise((resolve) => server.close(() => resolve())) });
+    const { url, close, fake, requests } = await serveFakeMcpHttp();
+    open.push({ close });
     const mcp = await connectMcpServers({
       remote: { url, headers: { Authorization: "Bearer token" } },
     });
+    open.push(mcp);
     const done = await createPipelineTestRuntime().runOrThrow(
       callingAgent(mcp.tools, [{ tool: "remote__echo", input: { text: "x", times: 3 } }]),
       {}
@@ -167,7 +168,6 @@ describe("MCP servers", () => {
       )
     );
     expect(requests.at(-1)!.method).toBe("DELETE");
-    server.closeAllConnections();
   });
 
   it("validates configuration and reports servers that fail to start", async () => {
@@ -206,5 +206,65 @@ describe("MCP servers", () => {
     );
     expect(result.status).toBe("failed");
     expect(JSON.stringify(result.errors)).toContain("MCP server fake is closed");
+  });
+
+  it.each(["repeated", "unbounded"])(
+    "rejects %s pagination and closes the failed session",
+    async (mode) => {
+      const { url, close, fake, requests } = await serveFakeMcpHttp();
+      open.push({ close });
+      const handle = fake.handle;
+      let pages = 0;
+      vi.spyOn(fake, "handle").mockImplementation((message) =>
+        message.method === "tools/list"
+          ? {
+              jsonrpc: "2.0",
+              id: message.id,
+              result: { tools: [], nextCursor: mode === "repeated" ? "repeat" : String(++pages) },
+            }
+          : handle(message)
+      );
+      await expect(connectMcpServers({ fake: { url } })).rejects.toThrow(
+        mode === "repeated" ? "repeated a tool cursor" : "exceeds 1024 tool pages"
+      );
+      expect(requests.at(-1)!.method).toBe("DELETE");
+      expect(requests.filter(({ method }) => method === "tools/list")).toHaveLength(
+        mode === "repeated" ? 2 : 1024
+      );
+    }
+  );
+
+  it("keeps long JSON-RPC errors recoverable and the connection usable", async () => {
+    const { url, close, fake } = await serveFakeMcpHttp();
+    open.push({ close });
+    const handle = fake.handle;
+    vi.spyOn(fake, "handle").mockImplementation((message) =>
+      message.method === "tools/call" && message.params?.name === "fail"
+        ? { jsonrpc: "2.0", id: message.id, error: { code: -32602, message: "x".repeat(4096) } }
+        : handle(message)
+    );
+    const mcp = await connectMcpServers({ fake: { url } });
+    open.push(mcp);
+    const runtime = createPipelineTestRuntime();
+    const outcomes = await runtime.runOrThrow(
+      callingAgent(mcp.tools, [{ tool: "fake__fail", input: {} }]),
+      {}
+    );
+    expect(outcomes).toEqual([
+      {
+        id: "c0",
+        tool: "fake__fail",
+        ok: false,
+        error: { code: "MCP_PROTOCOL_ERROR", message: `-32602: ${"x".repeat(4088)}` },
+      },
+    ]);
+    expect(
+      await runtime.runOrThrow(
+        callingAgent(mcp.tools, [
+          { tool: "fake__echo", input: { text: "still works", times: null } },
+        ]),
+        {}
+      )
+    ).toMatchObject([{ ok: true, value: { content: [{ text: "still works" }] } }]);
   });
 });

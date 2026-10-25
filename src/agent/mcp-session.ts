@@ -1,4 +1,4 @@
-import { createAbortError } from "../utilities/abort.js";
+import { createAbortError, throwIfAborted } from "../utilities/abort.js";
 
 export interface McpMessage {
   readonly jsonrpc: "2.0";
@@ -103,6 +103,7 @@ export async function openMcpSession(
 
   const request = async (method: string, params: object, caller?: AbortSignal) => {
     if (failure) throw failure;
+    throwIfAborted(caller, `MCP ${method}`);
     const id = nextId++;
     const timeout = AbortSignal.timeout(timeoutMs);
     const deadline = caller ? AbortSignal.any([caller, timeout]) : timeout;

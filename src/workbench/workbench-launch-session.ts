@@ -1,5 +1,5 @@
 import type { PipelineContext } from "../core/pipeline.js";
-import type { PipelineRunStudioLaunchResult } from "../studio/run-store-ui.js";
+import type { PipelineRunStudioLaunchResult } from "../studio/server/listener.js";
 import type { PipelineTraceEvent, PipelineTraceExporter } from "../tracing/tracing.js";
 
 type ExecutionSettlement =

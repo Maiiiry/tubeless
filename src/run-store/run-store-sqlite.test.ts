@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PipelineRunStudioEventState } from "../studio/run-store-ui-state.js";
+import { PipelineRunStudioEventState } from "../studio/server/state.js";
 import { assertRunStoreMigrationConfigured } from "./run-store-migrate.js";
 import { openSqlitePipelineRunStore, upgradeSqlitePipelineRunStore } from "./run-store-sqlite.js";
 import { createSteps, definePipeline } from "../core/pipeline.js";

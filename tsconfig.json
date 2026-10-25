@@ -23,7 +23,7 @@
     "src/**/*.test-support.ts",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
-    "src/studio/run-store-ui-client-browser.ts"
+    "src/studio/browser/entry.ts"
   ],
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

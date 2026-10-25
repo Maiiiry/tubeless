@@ -1,8 +1,8 @@
 import type { PipelineRunEventReader } from "../run-store/run-store.js";
-import { createStudioApiHandler } from "../studio/run-store-ui-api.js";
-import { createStudioRequestHandler } from "../studio/run-store-ui-handler.js";
-import { createStudioPage } from "../studio/run-store-ui-page.js";
-import type { PipelineRunStudioLauncher } from "../studio/run-store-ui-protocol.js";
+import { createStudioApiHandler } from "../studio/server/api.js";
+import { createStudioRequestHandler } from "../studio/server/handler.js";
+import { createStudioPage } from "../studio/server/page.js";
+import type { PipelineRunStudioLauncher } from "../studio/shared/protocol.js";
 
 export interface StudioHostOptions {
   readonly store: Pick<PipelineRunEventReader, "listEvents">;

@@ -5,7 +5,7 @@ import type {
   PipelineRunStudioLaunchRequest,
   PipelineRunStudioLaunchResult,
   PipelineRunStudioCancelResult,
-} from "../studio/run-store-ui-protocol.js";
+} from "../studio/shared/protocol.js";
 import type { PipelineTraceExporter } from "../tracing/tracing.js";
 import type { WorkbenchPipelineCommand } from "./pipeline-module.js";
 import { executePipelineCommandValues } from "./workbench-command-execution.js";

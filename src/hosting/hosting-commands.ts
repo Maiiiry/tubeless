@@ -17,7 +17,7 @@ import type {
 import { causalPipelineErrors } from "../core/pipeline-diagnostics.js";
 import type { AnyProjectPipeline, PipelineProject } from "../project/pipeline-project.js";
 import { renderPipelineError } from "../render/render.js";
-import type { PipelineRunStudioCommand } from "../studio/run-store-ui-protocol.js";
+import type { PipelineRunStudioCommand } from "../studio/shared/protocol.js";
 import { isAbortError } from "../utilities/abort.js";
 import { pipelineForCommand } from "../utilities/pipeline-command-marker.js";
 

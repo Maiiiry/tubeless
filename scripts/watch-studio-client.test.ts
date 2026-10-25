@@ -28,9 +28,9 @@ describe("studioClientSources", () => {
     );
     expect(sources).toEqual(
       expect.arrayContaining([
-        "src/studio/run-store-ui-client-browser.ts",
-        "src/studio/run-store-ui-runs.tsx",
-        "src/studio/run-store-ui-graph.tsx",
+        "src/studio/browser/entry.ts",
+        "src/studio/browser/components/runs.tsx",
+        "src/studio/browser/graph/graph.tsx",
         "src/run-store/definition-diff.ts",
         "src/utilities/canonical-json.ts",
         "src/run-store/cache-artifact.ts",
@@ -44,16 +44,19 @@ describe("studioClientSources", () => {
 describe("startStudioClientWatch", () => {
   it("rebuilds once for a burst, then once more for a change during that rebuild", async () => {
     const root = mkdtempSync(join(tmpdir(), "tubeless-studio-watch-"));
-    mkdirSync(join(root, "src/studio"), { recursive: true });
+    mkdirSync(join(root, "src/studio/browser"), { recursive: true });
     mkdirSync(join(root, "src/cli"), { recursive: true });
-    mkdirSync(join(root, "dist/studio"), { recursive: true });
+    mkdirSync(join(root, "dist/studio/browser"), { recursive: true });
     mkdirSync(join(root, "dist/cloudflare"), { recursive: true });
-    writeFileSync(join(root, "src/studio/leaf.ts"), 'export const label = "Studio";\n');
-    writeFileSync(join(root, "src/studio/types-only.ts"), "export interface T { n: number }\n");
-    writeFileSync(join(root, "src/studio/skip.ts"), "export const skip = true;\n");
+    writeFileSync(join(root, "src/studio/browser/leaf.ts"), 'export const label = "Studio";\n');
+    writeFileSync(
+      join(root, "src/studio/browser/types-only.ts"),
+      "export interface T { n: number }\n"
+    );
+    writeFileSync(join(root, "src/studio/browser/skip.ts"), "export const skip = true;\n");
     writeFileSync(join(root, "src/cli/cli-parser.ts"), "export const n = 1;\n");
     writeFileSync(
-      join(root, "src/studio/run-store-ui-client-browser.ts"),
+      join(root, "src/studio/browser/entry.ts"),
       [
         '// import { skip } from "./skip.js";',
         '/* import { skip } from "./skip.js"; */',
@@ -63,16 +66,13 @@ describe("startStudioClientWatch", () => {
         "",
       ].join("\n")
     );
-    writeFileSync(join(root, "dist/studio/run-store-ui-client-browser.js"), "ok\n");
+    writeFileSync(join(root, "dist/studio/browser/entry.js"), "ok\n");
     writeFileSync(join(root, "dist/cloudflare/cloudflare-studio-client.js"), "ok\n");
 
     const relativeSources = [...studioClientSources(root)]
       .map((file) => relative(root, file))
       .sort();
-    expect(relativeSources).toEqual([
-      "src/studio/leaf.ts",
-      "src/studio/run-store-ui-client-browser.ts",
-    ]);
+    expect(relativeSources).toEqual(["src/studio/browser/entry.ts", "src/studio/browser/leaf.ts"]);
 
     const pending: Array<() => void> = [];
     let warmup = true;
@@ -93,14 +93,14 @@ describe("startStudioClientWatch", () => {
       expect(pending).toHaveLength(0);
 
       writeFileSync(
-        join(root, "src/studio/types-only.ts"),
+        join(root, "src/studio/browser/types-only.ts"),
         "export interface T { n: number; extra: boolean }\n"
       );
       writeFileSync(join(root, "src/cli/cli-parser.ts"), "export const n = 2;\n");
       await delay(250);
       expect(pending).toHaveLength(0);
 
-      const leaf = join(root, "src/studio/leaf.ts");
+      const leaf = join(root, "src/studio/browser/leaf.ts");
       writeFileSync(leaf, 'export const label = "Studio 2";\n');
       await delay(15);
       writeFileSync(leaf, 'export const label = "Studio 3";\n');
@@ -124,12 +124,9 @@ describe("startStudioClientWatch", () => {
 
   it("generates at startup when a bundle is missing and keeps watching after a failure", async () => {
     const root = mkdtempSync(join(tmpdir(), "tubeless-studio-watch-"));
-    mkdirSync(join(root, "src/studio"), { recursive: true });
+    mkdirSync(join(root, "src/studio/browser"), { recursive: true });
     mkdirSync(join(root, "dist/cloudflare"), { recursive: true });
-    writeFileSync(
-      join(root, "src/studio/run-store-ui-client-browser.ts"),
-      'export const text = "Studio";\n'
-    );
+    writeFileSync(join(root, "src/studio/browser/entry.ts"), 'export const text = "Studio";\n');
     writeFileSync(join(root, "dist/cloudflare/cloudflare-studio-client.js"), "ok\n");
 
     const calls: string[] = [];
@@ -143,10 +140,7 @@ describe("startStudioClientWatch", () => {
     });
     try {
       await waitForCount(calls, 1);
-      writeFileSync(
-        join(root, "src/studio/run-store-ui-client-browser.ts"),
-        'export const text = "Studio 2";\n'
-      );
+      writeFileSync(join(root, "src/studio/browser/entry.ts"), 'export const text = "Studio 2";\n');
       await waitForCount(calls, 2);
     } finally {
       handle.close();
@@ -156,13 +150,16 @@ describe("startStudioClientWatch", () => {
 
   it("follows a literal dynamic import and rebuilds when that module changes", async () => {
     const root = mkdtempSync(join(tmpdir(), "tubeless-studio-watch-"));
-    mkdirSync(join(root, "src/studio"), { recursive: true });
-    mkdirSync(join(root, "dist/studio"), { recursive: true });
+    mkdirSync(join(root, "src/studio/browser"), { recursive: true });
+    mkdirSync(join(root, "dist/studio/browser"), { recursive: true });
     mkdirSync(join(root, "dist/cloudflare"), { recursive: true });
-    writeFileSync(join(root, "src/studio/panel.ts"), 'export const panel = "panel";\n');
-    writeFileSync(join(root, "src/studio/comment-panel.ts"), "export const hidden = true;\n");
+    writeFileSync(join(root, "src/studio/browser/panel.ts"), 'export const panel = "panel";\n');
     writeFileSync(
-      join(root, "src/studio/run-store-ui-client-browser.ts"),
+      join(root, "src/studio/browser/comment-panel.ts"),
+      "export const hidden = true;\n"
+    );
+    writeFileSync(
+      join(root, "src/studio/browser/entry.ts"),
       [
         '// import("./comment-panel.js");',
         '/* import("./comment-panel.js"); */',
@@ -172,12 +169,12 @@ describe("startStudioClientWatch", () => {
         "",
       ].join("\n")
     );
-    writeFileSync(join(root, "dist/studio/run-store-ui-client-browser.js"), "ok\n");
+    writeFileSync(join(root, "dist/studio/browser/entry.js"), "ok\n");
     writeFileSync(join(root, "dist/cloudflare/cloudflare-studio-client.js"), "ok\n");
 
     const relativeSources = [...studioClientSources(root)].map((file) => relative(root, file));
-    expect(relativeSources).toContain("src/studio/panel.ts");
-    expect(relativeSources).not.toContain("src/studio/comment-panel.ts");
+    expect(relativeSources).toContain("src/studio/browser/panel.ts");
+    expect(relativeSources).not.toContain("src/studio/browser/comment-panel.ts");
 
     const pending: Array<() => void> = [];
     let warmup = true;
@@ -196,7 +193,7 @@ describe("startStudioClientWatch", () => {
       await delay(80);
       expect(pending).toHaveLength(0);
 
-      writeFileSync(join(root, "src/studio/panel.ts"), 'export const panel = "panel 2";\n');
+      writeFileSync(join(root, "src/studio/browser/panel.ts"), 'export const panel = "panel 2";\n');
       await waitForCount(pending, 1);
       await delay(80);
       expect(pending).toHaveLength(1);
@@ -209,14 +206,14 @@ describe("startStudioClientWatch", () => {
 
   it("keeps watching when a source scan throws", async () => {
     const root = mkdtempSync(join(tmpdir(), "tubeless-studio-watch-"));
-    mkdirSync(join(root, "src/studio"), { recursive: true });
-    mkdirSync(join(root, "dist/studio"), { recursive: true });
+    mkdirSync(join(root, "src/studio/browser"), { recursive: true });
+    mkdirSync(join(root, "dist/studio/browser"), { recursive: true });
     mkdirSync(join(root, "dist/cloudflare"), { recursive: true });
-    const entry = join(root, "src/studio/run-store-ui-client-browser.ts");
-    const leaf = join(root, "src/studio/leaf.ts");
+    const entry = join(root, "src/studio/browser/entry.ts");
+    const leaf = join(root, "src/studio/browser/leaf.ts");
     writeFileSync(leaf, 'export const label = "Studio";\n');
     writeFileSync(entry, 'import { label } from "./leaf.js";\nexport const text = label;\n');
-    writeFileSync(join(root, "dist/studio/run-store-ui-client-browser.js"), "ok\n");
+    writeFileSync(join(root, "dist/studio/browser/entry.js"), "ok\n");
     writeFileSync(join(root, "dist/cloudflare/cloudflare-studio-client.js"), "ok\n");
 
     const pending: Array<() => void> = [];

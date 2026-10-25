@@ -3,15 +3,15 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // This script is the only writer of the browser bundle. `tsconfig.json` excludes
-// `src/studio/run-store-ui-client-browser.ts` so `tsc` never emits a competing
+// `src/studio/browser/entry.ts` so `tsc` never emits a competing
 // module over that path — an unfiltered compile would overwrite the bundle with
 // an importing stub and break the served Studio client.
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const check = process.argv.includes("--check");
 
-const clientEntryPath = resolve(packageRoot, "src/studio/run-store-ui-client-browser.ts");
-const browserBundlePath = resolve(packageRoot, "dist/studio/run-store-ui-client-browser.js");
+const clientEntryPath = resolve(packageRoot, "src/studio/browser/entry.ts");
+const browserBundlePath = resolve(packageRoot, "dist/studio/browser/entry.js");
 const cloudflareClientPath = resolve(packageRoot, "dist/cloudflare/cloudflare-studio-client.js");
 const cloudflareClientTypesPath = resolve(
   packageRoot,

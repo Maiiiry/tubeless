@@ -1,4 +1,4 @@
-import { errorResponse } from "../studio/run-store-ui-http.js";
+import { errorResponse } from "../studio/server/http.js";
 
 export interface AccessConfig {
   readonly issuer: string;

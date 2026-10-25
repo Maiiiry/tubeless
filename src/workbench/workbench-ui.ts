@@ -1,5 +1,5 @@
 import { studioDescriptor } from "../hosting/hosting-commands.js";
-import { parseStudioHosting } from "../studio/run-store-ui-hosting.js";
+import { parseStudioHosting } from "../studio/server/hosting.js";
 import * as path from "node:path";
 import type { SqlitePipelineRunStore } from "../run-store/run-store-sqlite.js";
 import { loadPipelineProjectFile, createModuleRegistration } from "./workbench-project-loader.js";
@@ -152,13 +152,15 @@ export async function runUi(argv: readonly string[], io: WorkbenchCliIo): Promis
         let store: PipelineRunEventReader | undefined;
         let writableStore: SqlitePipelineRunStore | undefined;
         let server:
-          | Awaited<ReturnType<typeof import("../studio/run-store-ui.js").startPipelineRunStudio>>
+          | Awaited<
+              ReturnType<typeof import("../studio/server/listener.js").startPipelineRunStudio>
+            >
           | undefined;
         let disposeProcessSignals: (() => void) | undefined;
         let launcher: WorkbenchStudioLauncher | undefined;
         let storeOpened = false;
         try {
-          const { startPipelineRunStudio } = await import("../studio/run-store-ui.js");
+          const { startPipelineRunStudio } = await import("../studio/server/listener.js");
           if (parsed.values.trace) {
             const { openNdjsonPipelineRunStore } = await import("../run-store/run-store-ndjson.js");
             store = await openNdjsonPipelineRunStore(filename);

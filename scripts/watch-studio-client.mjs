@@ -9,8 +9,8 @@ import { generateStudioClient } from "./generate-studio-client.mjs";
 
 const defaultPackageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const defaultDebounceMs = 50;
-const clientEntry = "src/studio/run-store-ui-client-browser.ts";
-const browserBundle = "dist/studio/run-store-ui-client-browser.js";
+const clientEntry = "src/studio/browser/entry.ts";
+const browserBundle = "dist/studio/browser/entry.js";
 const cloudflareBundle = "dist/cloudflare/cloudflare-studio-client.js";
 
 /** Files Bun bundles into the Studio client, following relative value imports. */

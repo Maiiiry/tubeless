@@ -10,7 +10,7 @@ import type {
   PipelineRunStudioLauncher,
   PipelineRunStudioLaunchRequest,
   PipelineRunStudioLaunchResult,
-} from "../studio/run-store-ui-protocol.js";
+} from "../studio/shared/protocol.js";
 import type { PipelineTraceEvent } from "../tracing/tracing.js";
 import { LaunchRegistry } from "./cloudflare-launches.js";
 import { openDurableRunStore, type DurableRunStore } from "./cloudflare-run-store.js";

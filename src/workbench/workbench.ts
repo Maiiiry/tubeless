@@ -50,7 +50,7 @@ const WORKBENCH_COMMANDS = [
   {
     name: "agent",
     description: "Prompt a workspace agent with a live execution DAG",
-    run: async (argv, io) => (await import("./workbench-agent.js")).runAgent(argv, io),
+    run: async (argv, io) => (await import("./agent/command.js")).runAgent(argv, io),
   },
   {
     name: "init",
@@ -60,12 +60,12 @@ const WORKBENCH_COMMANDS = [
   {
     name: "auth",
     description: "Sign in to Tubeless Cloud",
-    run: async (argv, io) => (await import("./workbench-auth.js")).runAuth(argv, io),
+    run: async (argv, io) => (await import("./cloud/auth.js")).runAuth(argv, io),
   },
   {
     name: "cloud",
     description: "List and run deployed Cloud pipelines",
-    run: async (argv, io) => (await import("./workbench-cloud.js")).runCloud(argv, io),
+    run: async (argv, io) => (await import("./cloud/command.js")).runCloud(argv, io),
   },
   { name: "ui", description: "Open the optional local run studio", run: runUi },
   {

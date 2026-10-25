@@ -110,9 +110,9 @@ describe("module runtime boundaries", () => {
 
   it("keeps the Studio request pipeline, page and API free of Node built-ins", () => {
     const pending = [
-      resolve(dist, "studio/run-store-ui-handler.js"),
-      resolve(dist, "studio/run-store-ui-page.js"),
-      resolve(dist, "studio/run-store-ui-api.js"),
+      resolve(dist, "studio/server/handler.js"),
+      resolve(dist, "studio/server/page.js"),
+      resolve(dist, "studio/server/api.js"),
     ];
     const visited = new Set<string>();
     while (pending.length > 0) {
@@ -139,12 +139,12 @@ describe("module runtime boundaries", () => {
       "run-store/run-store-reader.js",
       "run-store/run-history.js",
       "run-store/run-store-schema.js",
-      "studio/run-store-ui-api.js",
-      "studio/run-store-ui-children.js",
-      "studio/run-store-ui-http.js",
-      "studio/run-store-ui-protocol.js",
-      "studio/run-store-ui-state.js",
-      "studio/run-store-ui-schema.js",
+      "studio/server/api.js",
+      "studio/server/children.js",
+      "studio/server/http.js",
+      "studio/shared/protocol.js",
+      "studio/server/state.js",
+      "studio/shared/schema.js",
       "tracing/artifact-metadata.js",
       "tracing/graph-metadata.js",
       "tracing/tracing-schema.js",
@@ -152,7 +152,7 @@ describe("module runtime boundaries", () => {
       "tracing/wire-schema.js",
     ]);
     const pending = [
-      resolve(dist, "studio/run-store-ui-api.js"),
+      resolve(dist, "studio/server/api.js"),
       resolve(dist, "run-store/run-store.js"),
       resolve(dist, "run-store/agent-history.js"),
     ];
@@ -271,7 +271,7 @@ describe("module runtime boundaries", () => {
       const name = relative(dist, file).split(sep).join("/");
       expect(moduleName(file), `Hosting reaches ${name}`).not.toBe("workbench");
       expect(name).not.toMatch(
-        /^run-store\/run-store-(sqlite|ndjson)\.js$|^studio\/run-store-ui(-node|-page-node)?\.js$/
+        /^run-store\/run-store-(sqlite|ndjson)\.js$|^studio\/server\/(listener|node-http|client-script)\.js$/
       );
       for (const specifier of externalSpecifiers(file)) {
         if (moduleName(file) === "hosting") {

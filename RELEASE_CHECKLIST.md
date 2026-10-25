@@ -57,7 +57,7 @@ responses exercise the HTTP protocol and evaluation runner without paid calls.
 | Subagents, shared budgets, depth and concurrency, cancellation and draining             | `src/agent/subagents.test.ts`, `src/agent/pipeline-tool.test.ts`                              |
 | Limits, invalid model decisions, dry-run previews and skipped live work                 | `src/agent/agent.test.ts`, `src/agent/model-agent.test.ts`                                    |
 | Prompt/project context, conversation ownership and compaction protocol                  | `src/agent/model-prompt.test.ts`, `src/agent/model-agent.test.ts`, `src/agent/openai.test.ts` |
-| Normal CLI execution, ordinary parent pipeline, SQLite/NDJSON turn/call history         | `src/workbench/workbench-agent-history.test.ts`                                               |
+| Normal CLI execution, ordinary parent pipeline, SQLite/NDJSON turn/call history         | `src/workbench/agent/history.test.ts`                                                         |
 | Installed public imports and CLI, agent composition and previews                        | `scripts/verify-packed-artifact.mjs`                                                          |
 | Restarted decisions, validated call receipts, ordered outcomes and ancestor budgets     | `src/agent/durability.test.ts`                                                                |
 | Actual process death, SQLite owner reclaim and uncertain mutation recovery              | `src/agent/durability-process.test.ts`                                                        |

@@ -157,30 +157,30 @@ Run `make check` after changes; it builds before checking these boundaries.
 
 ## Workbench execution ownership
 
-- `workbench/workbench-agent.ts` owns agent command validation and model-module loading.
-  `workbench-agent-environment.ts` parses explicitly selected dotenv files and
+- `workbench/agent/command.ts` owns agent command validation and model-module loading.
+  `workbench/agent/environment.ts` parses explicitly selected dotenv files and
   merges them with the process environment without mutating global values.
-  `workbench-agent-commands.ts` owns shared slash command declarations, help,
+  `workbench/agent/commands.ts` owns shared slash command declarations, help,
   parsing, and readline completion so these interfaces stay aligned.
-  `workbench-agent-session.ts` owns prompt sequencing through native async iteration, REPL
-  commands, retained conversation, and session cancellation. `workbench-agent-prompt.ts`
+  `workbench/agent/session.ts` owns prompt sequencing through native async iteration, REPL
+  commands, retained conversation, and session cancellation. `workbench/agent/prompt.ts`
   owns one cancellable model initialization
   and agent run, disposing the standard pipeline reporter before publishing its
   outcome. It snapshots the finish conversation and commits it to the session only
   after successful finalization. Nested turns and tool calls use existing progress hooks.
   It composes the existing model agent and optional OpenAI transport without
   changing their ownership.
-  `workbench-agent-input.ts` uses readline's prompt API for terminals and bounded
+  `workbench/agent/input.ts` uses readline's prompt API for terminals and bounded
   iteration for pipes; it owns the themed prompt, native Tab completion, and
   interactive input while work runs. Presentation reuses the reporter theme;
   execution uses the same interactive/plain reporter as pipeline CLI commands.
 
-- `workbench/workbench-auth.ts` and `workbench-cloud.ts` own lazy first-party Cloud
-  command orchestration and name/slug selection. `cloud-client.ts` owns bounded
-  HTTP transport and run request validation; `cloud-protocol.ts` owns independent
+- `workbench/cloud/auth.ts` and `workbench/cloud/command.ts` own lazy first-party Cloud
+  command orchestration and name/slug selection. `workbench/cloud/client.ts` owns bounded
+  HTTP transport and run request validation; `workbench/cloud/protocol.ts` owns independent
   wire types, strict response decoding, finite JSON validation and the canonical token validator.
-  `cloud-config.ts` validates explicit/default service origins, and
-  `cloud-credentials.ts` owns lazy native credentials. These modules never import
+  `workbench/cloud/config.ts` validates explicit/default service origins, and
+  `workbench/cloud/credentials.ts` owns lazy native credentials. These modules never import
   selected pipeline files and remain outside public runtime entrypoints.
 - `workbench/workbench-shared.ts` owns terminal-safe text formatting shared by
   local history and Cloud human output. Machine JSON retains original fields.
@@ -242,47 +242,58 @@ and interactive reporter orchestration.
   SQLite resolves descendants with a recursive query, including
   older read-only stores; NDJSON follows its in-memory parent index. Cursor and
   pipeline filters apply after discovering the subtree so they cannot sever links.
-- `studio/run-store-ui-state.ts` serializes reads and history clearing; it consumes
+- `studio/server/state.ts` serializes reads and history clearing; it consumes
   only the reader's `listEvents` capability. `run-store/run-history.ts` owns the
   historical hierarchy, descendant activity and summary projection. Studio retains
   that index per history revision, pages root summaries and searches the complete
   hierarchy on the server. Selected-run reads supply ancestry and direct-child
   summaries; definition metadata and its run pages load independently.
-  `studio/run-store-ui-data-controller.ts` owns history queries, selection state
+  `studio/browser/data-controller.ts` owns history queries, selection state
   and detail freshness. Views consume one selection union, and resource refreshes
   retain matching definition metadata without remounting its explorer.
   `run-store/run-history.ts` also attributes each nested run to the parent step that
   started it (`origin`), using iteration and agent-call links before pipeline matches.
-- `studio/run-store-ui-client.tsx` composes the browser app: view selection, URL
+- `studio/browser/app.tsx` composes the browser app: view selection, URL
   state, live refresh and history clearing. Feature views live beside it:
-  `run-store-ui-runs.tsx` (run list and detail), `run-store-ui-pipelines.tsx`
-  (command catalog and plan preview), and `run-store-ui-launch.tsx` (launch form,
-  value serialization and modal). `run-store-ui-common.tsx` holds small shared pieces.
-- `studio/run-store-ui-steps.tsx` owns step presentation shared by the timeline and
-  graph. `studio/run-store-ui-graph-layout.ts` is a pure layered DAG layout;
-  `studio/run-store-ui-graph.tsx` builds the run graph scene from planned step
+  `studio/browser/components/runs.tsx` (run list and detail), `studio/browser/components/pipelines.tsx`
+  (command catalog and plan preview), and `studio/browser/components/launch.tsx` (launch form,
+  value serialization and modal). `studio/browser/components/common.tsx` holds small shared pieces.
+- `studio/browser/components/steps.tsx` owns step presentation shared by the timeline and
+  graph. `studio/browser/graph/layout.ts` is a pure layered DAG layout;
+  `studio/browser/graph/graph.tsx` builds the run graph scene from planned step
   dependencies and attributed child runs, loads expanded nested runs through the
   Studio API, and owns the inspector.
 - `run-store/run-store-schema.ts` validates projected storage records;
-  `studio/run-store-ui-schema.ts` defines the browser protocol. Both reuse pure
+  `studio/shared/schema.ts` defines the browser protocol. Both reuse pure
   trace schemas. Decode at the transport boundary instead of promoting partially
   checked objects to core or storage types. Conditional history refreshes preserve
   the browser's current snapshot when the revision, query and live launch IDs agree.
-- `studio/run-store-ui-api.ts` owns route behavior, command validation and API state.
-  `studio/run-store-ui-http.ts` owns HTTP parsing, response formatting and authority
-  helpers. `studio/run-store-ui-handler.ts` owns the platform-neutral request order:
+- `studio/server/api.ts` owns route behavior, command validation and API state.
+  `studio/server/http.ts` owns HTTP parsing, response formatting and authority
+  helpers. `studio/server/handler.ts` owns the platform-neutral request order:
   authentication, trusted host, Origin on mutations, mount, health, page, then API.
-  `studio/run-store-ui-page.ts` builds the page and CSP from an injected client script;
-  `run-store-ui-page-node.ts` loads that script on Node. `studio/run-store-ui-node.ts`
-  bridges Node requests and responses to Fetch, and `studio/run-store-ui.ts` is only the
+  `studio/server/page.ts` builds the page and CSP from an injected client script;
+  `studio/server/client-script.ts` loads that script on Node. `studio/server/node-http.ts`
+  bridges Node requests and responses to Fetch, and `studio/server/listener.ts` is only the
   Node listener adapter: bind address, wildcard Host trust and server closure. Keep API
-  handling behind the handler's host and gateway checks. `studio/run-store-ui-hosting.ts`
+  handling behind the handler's host and gateway checks. `studio/server/hosting.ts`
   validates operator configuration, raw mount paths and gateway credentials without
   loading stores or execution. Only the nonsecret mount enters page metadata;
   authentication remains outside core and the browser import graph.
 
 History projection and API routes do not load pipeline execution, concrete storage
 adapters or page assets. The emitted runtime graph test enforces this boundary.
+
+## Internal layout
+
+Use directories for feature ownership instead of repeating that ownership in every
+filename. Studio separates `browser/` (the app, components and graph), `server/`
+(request handling and Node adapters), and `shared/` (protocol, schemas and routes).
+Workbench keeps agent command/session code in `agent/` and Cloud commands,
+authentication and transport in `cloud/`. Keep tests beside their implementations;
+use short role names such as `command.ts`, `session.ts` and `transport.ts` within
+those directories. Import implementations directly rather than adding barrels for
+internal folders. Public package subpaths remain the API boundary.
 
 ## Moving files
 

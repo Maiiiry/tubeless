@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { AnyProjectPipeline, PipelineProject } from "../project/pipeline-project.js";
 import { hostedProjectCommands } from "../hosting/hosting-commands.js";
-import { errorResponse } from "../studio/run-store-ui-http.js";
+import { errorResponse } from "../studio/server/http.js";
 import type { PipelineTraceEvent } from "../tracing/tracing.js";
 import { createAccessAuthenticator, parseAccessConfig } from "./cloudflare-access.js";
 import {

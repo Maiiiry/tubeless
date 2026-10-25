@@ -22,6 +22,7 @@ Package: `tubeless`
 | `tubeless/testing`          | `./dist/testing/testing.d.ts`             | `8132a51acb1dc50c2d9bc242af24e4176ebf0b8ac8515a1d5032d861fb66dc56` |               10 |
 | `tubeless/tracing`          | `./dist/tracing/tracing.d.ts`             | `e378d1e798e86752560d4398a591826ba0b3e0af0417ffd2fd71e3ffb28aeffb` |                3 |
 | `tubeless/agent/openai`     | `./dist/agent/openai.d.ts`                | `bb2f61e5d23cd96a8881c60546b669a5c4ec66ced05b7f89f9ebeedf6f7b092b` |                2 |
+| `tubeless/agent/mcp`        | `./dist/agent/mcp.d.ts`                   | `3a3274d18722ab45ca2aa785d893b1a25695403ccea7c1035189875ba8367373` |                7 |
 | `tubeless/agent/anthropic`  | `./dist/agent/anthropic.d.ts`             | `29cf945ffc07c4adda8b206eb23ac02fd279957c12ee6a7f205ca8d806f10412` |                2 |
 | `tubeless/cloudflare`       | `./dist/cloudflare/cloudflare.d.ts`       | `4ad15d4c8feeedf6decc5490e12a7c5b495bc4abcc7fbbeebf7a3fd5a6c01867` |                9 |
 | `tubeless/cloudflare/cache` | `./dist/cloudflare/cloudflare-cache.d.ts` | `1ef4f5fbc3032f0fa2f61f3985d20cb41491c3d0477ba2757e5af97bb83364c9` |                4 |
@@ -278,6 +279,18 @@ Package: `tubeless`
 | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | [`openaiModel`](https://github.com/chetmancini/tubeless/blob/main/src/agent/openai.ts#L40)        | Create a dependency-free OpenAI Responses model with native history and automatic compaction. |
 | [`OpenAIModelOptions`](https://github.com/chetmancini/tubeless/blob/main/src/agent/openai.ts#L10) | Responses transport settings; credentials are resolved only when a decision executes.         |
+
+### `tubeless/agent/mcp`
+
+| Symbol                                                                                            | Description                                                                                    |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [`connectMcpServers`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L182)    | Connect MCP servers and expose their tools to an agent, named `<server>__<tool>`.              |
+| [`McpHttpOptions`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-http.ts#L10)   | A remote server reached over Streamable HTTP.                                                  |
+| [`McpServer`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L27)             | A Streamable HTTP endpoint (`url`) or a local stdio command (`command`).                       |
+| [`McpServers`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L34)            | Connected servers whose tools are named `<server>__<tool>`; close them after the agent's runs. |
+| [`McpStdioOptions`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-stdio.ts#L10) | A local server process speaking JSON-RPC over stdin and stdout.                                |
+| [`McpTool`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp.ts#L31)               | A tool discovered on an MCP server, called with its validated JSON arguments.                  |
+| [`McpToolResult`](https://github.com/chetmancini/tubeless/blob/main/src/agent/mcp-schema.ts#L255) | Content and optional structured data returned by an MCP tool call.                             |
 
 ### `tubeless/agent/anthropic`
 

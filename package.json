@@ -160,6 +160,11 @@
       "import": "./dist/agent/openai.js",
       "default": "./dist/agent/openai.js"
     },
+    "./agent/mcp": {
+      "types": "./dist/agent/mcp.d.ts",
+      "import": "./dist/agent/mcp.js",
+      "default": "./dist/agent/mcp.js"
+    },
     "./agent/anthropic": {
       "types": "./dist/agent/anthropic.d.ts",
       "import": "./dist/agent/anthropic.js",

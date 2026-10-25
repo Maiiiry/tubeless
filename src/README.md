@@ -61,6 +61,9 @@ their source files.
   compaction. `openai-http.ts` bounds successful responses and authentication
   error-body reads, exposing known rejection codes and safe advice without raw
   provider messages. The provider-independent agent entrypoint never imports it.
+  The optional `tubeless/agent/mcp` entrypoint owns MCP sessions (`mcp-session.ts`),
+  HTTP and lazily loaded stdio transports, and schema adaptation; it produces
+  ordinary `defineTool` capabilities, so the agent runtime has no MCP concepts.
   `testing/agent.example.test.ts` covers public recipes, including ordinary pipeline
   composition. Workbench history tests and the packed-artifact check exercise those
   recipes through the CLI; live model evaluations remain an opt-in script outside CI.

@@ -57,14 +57,14 @@ function moduleName(file: string): string {
 }
 
 describe("module runtime boundaries", () => {
-  it("keeps provider adapters out of the generic agent import graph", () => {
+  it("keeps provider and MCP adapters out of the generic agent import graph", () => {
     const pending = [resolve(dist, "agent/agent.js")];
     const visited = new Set<string>();
     while (pending.length > 0) {
       const file = pending.pop()!;
       if (visited.has(file)) continue;
       visited.add(file);
-      expect(relative(dist, file)).not.toMatch(/openai|anthropic|provider-/);
+      expect(relative(dist, file)).not.toMatch(/openai|anthropic|provider-|mcp/);
       pending.push(...dependencies(file));
     }
     expect(visited.has(resolve(dist, "agent/model-agent.js"))).toBe(true);

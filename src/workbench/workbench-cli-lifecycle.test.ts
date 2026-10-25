@@ -78,7 +78,7 @@ describe("workbench CLI lifecycle", () => {
         misplacedFlagIo
       )
     ).toBe(TUBELESS_WORKBENCH_EXIT_CODE.usage);
-    expect(misplacedFlagIo.errors.join("")).toContain("Application flags belong after --");
+    expect(misplacedFlagIo.errors.join("")).toContain("Pass application flags after --");
   });
 
   it("turns SIGINT into cancellation and removes its temporary listener", async () => {

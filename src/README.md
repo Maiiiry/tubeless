@@ -245,9 +245,13 @@ and interactive reporter orchestration.
 - `studio/server/state.ts` serializes reads and history clearing; it consumes
   only the reader's `listEvents` capability. `run-store/run-history.ts` owns the
   historical hierarchy, descendant activity and summary projection. Studio retains
-  that index per history revision, pages root summaries and searches the complete
-  hierarchy on the server. Selected-run reads supply ancestry and direct-child
-  summaries; definition metadata and its run pages load independently.
+  that index per history revision in `studio/server/history.ts`, which owns search,
+  summary pagination, child attribution and definition queries without a storage
+  capability. `studio/server/run-details.ts` owns bounded detail retention, per-run
+  cursors and eviction. The state queue serializes all detail reads and cache resets
+  with history clearing; reset only after the maintenance adapter succeeds.
+  Selected-run reads supply ancestry and direct-child summaries; definition metadata
+  and its run pages load independently.
   `studio/browser/data-controller.ts` owns history queries, selection state
   and detail freshness. Views consume one selection union, and resource refreshes
   retain matching definition metadata without remounting its explorer.

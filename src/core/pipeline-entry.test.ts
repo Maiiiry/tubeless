@@ -166,6 +166,8 @@ describe("module runtime boundaries", () => {
       "studio/server/http.js",
       "studio/shared/protocol.js",
       "studio/server/state.js",
+      "studio/server/history.js",
+      "studio/server/run-details.js",
       "studio/shared/schema.js",
       "tracing/artifact-metadata.js",
       "tracing/graph-metadata.js",

@@ -1,7 +1,7 @@
 import { createRunHistoryIndex, summarizeRun } from "../../run-store/run-history.js";
 import type { StoredPipelineRun } from "../../run-store/run-store.js";
 import type { StudioSnapshot, StudioRunDetail } from "../shared/schema.js";
-import { summarizePipelines } from "./state.js";
+import { summarizePipelines } from "./history.js";
 
 export function studioSnapshot(
   runs: readonly StoredPipelineRun[],

@@ -1,11 +1,11 @@
+import { memoryStore, storedEvent } from "./events.test-support.js";
 import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PipelineRunEventStore, StoredPipelineEvent } from "../../run-store/run-store.js";
 import type { StoredRunSummary } from "../../run-store/run-history.js";
-import { STUDIO_OPEN_RUN_LIMIT, summarizePipelines } from "./state.js";
-import { decodePipelineTraceEvent } from "../../tracing/tracing-codec.js";
-import type { PipelineTraceEvent } from "../../tracing/tracing.js";
+import { STUDIO_OPEN_RUN_LIMIT } from "./run-details.js";
+import { summarizePipelines } from "./history.js";
 import { PIPELINE_RUN_STUDIO_STYLE } from "./page.js";
 import { readStudioClientScript } from "./client-script.js";
 import { connectionPresentation } from "../browser/app.js";
@@ -82,48 +82,6 @@ const fixtureParameters = [
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
 });
-
-function memoryStore(events: readonly StoredPipelineEvent[]): PipelineRunEventStore {
-  return {
-    close() {},
-    export() {},
-    async listEvents(query = {}) {
-      return events
-        .filter(
-          (event) =>
-            (query.runId === undefined || event.runId === query.runId) &&
-            (query.pipelineId === undefined || event.pipelineId === query.pipelineId) &&
-            (query.afterId === undefined || event.id > query.afterId)
-        )
-        .slice(0, query.limit);
-    },
-  };
-}
-
-function storedEvent(
-  value: Record<string, unknown> & { id: number; name: PipelineTraceEvent["name"] }
-): StoredPipelineEvent {
-  const { id, name, payload: payloadOverrides, ...event } = value;
-  const payloads: Partial<Record<PipelineTraceEvent["name"], Record<string, unknown>>> = {
-    "pipeline.completed": {
-      dryRun: false,
-      errorCount: 0,
-      finalized: false,
-      status: "completed",
-      stepCount: 0,
-    },
-    "pipeline.log": { level: "log", message: "" },
-    "pipeline.started": { dryRun: false, planOk: true, stepCount: 0, targetIds: [] },
-  };
-  return {
-    ...decodePipelineTraceEvent({
-      ...event,
-      name,
-      payload: { ...payloads[name], ...(payloadOverrides as object | undefined) },
-    }),
-    id,
-  };
-}
 
 const events: StoredPipelineEvent[] = [
   storedEvent({

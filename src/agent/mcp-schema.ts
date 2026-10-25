@@ -60,6 +60,20 @@ const UNSUPPORTED = [
   "$recursiveRef",
 ];
 
+const REFERENCE_ANNOTATIONS = [
+  "title",
+  "description",
+  "default",
+  "examples",
+  "deprecated",
+  "readOnly",
+  "writeOnly",
+  "$comment",
+  "$schema",
+  "$defs",
+  "definitions",
+];
+
 /** Inline references and rewrite supported schema positions in one traversal. */
 function strict(
   schema: unknown,
@@ -78,6 +92,8 @@ function strict(
   if (Array.isArray(schema.items)) throw new Error("MCP input schemas do not support tuple items");
   const { $ref, ...rest } = schema;
   if (typeof $ref === "string") {
+    if (Object.keys(rest).some((key) => !REFERENCE_ANNOTATIONS.includes(key)))
+      throw new Error("MCP schema references do not support validation siblings");
     const match = /^#\/(\$defs|definitions)\/(.+)$/.exec($ref);
     let target: unknown = root;
     for (const part of $ref.slice(2).split("/")) {
@@ -190,8 +206,6 @@ function decodeAny(options: unknown[], value: unknown, path: string, optional: W
   for (const option of options) {
     try {
       const decoded = decode(option, value, path, optional);
-      // Preserve supplied values when a matching branch needs no placeholder conversion.
-      if (jsonEqual(decoded, value)) return decoded;
       matches.push(decoded);
     } catch {
       // Try the next alternative.

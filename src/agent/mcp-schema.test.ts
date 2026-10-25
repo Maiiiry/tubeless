@@ -118,7 +118,7 @@ describe("MCP input schemas", () => {
   });
 
   it.each([false, true])(
-    "preserves explicit nulls across overlapping anyOf branches (reversed: %s)",
+    "rejects ambiguous nulls across overlapping anyOf branches (reversed: %s)",
     async (reversed) => {
       const branches = [
         { type: "object", properties: { value: { type: "string" } } },
@@ -129,14 +129,85 @@ describe("MCP input schemas", () => {
         properties: { input: { anyOf: reversed ? [...branches].reverse() : branches } },
         required: ["input"],
       });
-      expect(await schema["~standard"].validate({ input: { value: null } })).toEqual({
-        value: { input: { value: null } },
-      });
+      expect(await schema["~standard"].validate({ input: { value: null } })).toHaveProperty(
+        "issues",
+        [{ message: "input.input has ambiguous anyOf decoding" }]
+      );
       expect(await schema["~standard"].validate({ input: { value: "keep" } })).toEqual({
         value: { input: { value: "keep" } },
       });
     }
   );
+
+  it.each([
+    [{ type: "string", pattern: "^a$" }, { type: "string", pattern: "^b$" }, "a"],
+    [{ type: "number", maximum: 1 }, { type: "number", minimum: 2 }, 1],
+  ])(
+    "rejects ambiguous branch decoding when constraints belong to the server: %j",
+    async (left, right, value) => {
+      const branch = (kind: unknown, required: boolean) => ({
+        type: "object",
+        properties: {
+          kind,
+          value: { type: required ? "null" : "string" },
+        },
+        required: required ? ["kind", "value"] : ["kind"],
+      });
+      const schema = mcpInputSchema({
+        type: "object",
+        properties: {
+          input: {
+            anyOf: [branch(left, false), branch(right, true)],
+          },
+        },
+        required: ["input"],
+      });
+      expect(
+        await schema["~standard"].validate({ input: { kind: value, value: null } })
+      ).toHaveProperty("issues", [{ message: "input.input has ambiguous anyOf decoding" }]);
+    }
+  );
+
+  it.each(["required", "properties", "type", "enum", "minLength"])(
+    "rejects validation-bearing $ref sibling %s",
+    (keyword) => {
+      expect(() =>
+        mcpInputSchema({
+          type: "object",
+          properties: {
+            value: {
+              $ref: "#/$defs/value",
+              [keyword]: keyword === "required" ? ["b"] : {},
+            },
+          },
+          $defs: {
+            value: { type: "object", properties: { a: { type: "string" } }, required: ["a"] },
+          },
+        })
+      ).toThrow("MCP schema references do not support validation siblings");
+    }
+  );
+
+  it("preserves descriptive $ref siblings without replacing validation constraints", async () => {
+    const schema = mcpInputSchema({
+      type: "object",
+      properties: {
+        value: {
+          $ref: "#/$defs/text",
+          description: "Specific description",
+          examples: ["example"],
+        },
+      },
+      required: ["value"],
+      $defs: { text: { type: "string", description: "Original" } },
+    });
+    const descriptor = schema["~standard"].jsonSchema!.input({ target: "draft-2020-12" });
+    expect(descriptor.properties).toEqual({
+      value: { type: "string", description: "Specific description", examples: ["example"] },
+    });
+    expect(await schema["~standard"].validate({ value: "ok" })).toEqual({ value: { value: "ok" } });
+    expect(await schema["~standard"].validate({ value: 1 })).toHaveProperty("issues");
+  });
 
   it("rejects alternative interpretations that remove different placeholders", async () => {
     const branches = [

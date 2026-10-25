@@ -484,10 +484,11 @@ Arguments are structurally validated before dispatch, including structural equal
 for JSON-valued `enum` and `const`; the server validates the remaining constraints,
 including formats and ranges.
 Conversion bounds source data and expanded references with shared node, depth and
-text budgets. For overlapping `anyOf` branches, a matching interpretation that
-preserves the supplied values takes precedence. Otherwise matching branches must
-decode identically; conflicting branch or sibling interpretations fail validation
-before a tool call is dispatched.
+text budgets. References permit descriptive annotations but reject validation
+siblings, whose constraints would need composition. Structurally matching `anyOf`
+branches must all decode identically, including branches with server-validated
+constraints such as patterns and ranges. Conflicting branch or sibling
+interpretations fail validation before a tool call is dispatched.
 
 Results are `{ content, structuredContent? }` from the server. A result with
 `isError` becomes a recoverable `MCP_TOOL_ERROR` observation, and JSON-RPC errors

@@ -582,6 +582,19 @@ describe("runHistory", () => {
       }
     });
 
+    it("resolves UUID prefixes when the pipeline ID contains colons", async () => {
+      const directory = await tempDir();
+      const storePath = path.join(directory, "runs.sqlite");
+      const runId = "org:build:2dc3469d-9e02-4448-bb36-c42d7f59562d";
+      await seedStore(storePath, completedRun("org:build", runId, 1_700_000_000_000));
+      for (const mode of [[], ["--json"], ["--events"]]) {
+        const io = captureIo(directory);
+        expect(await runHistory(["--store", storePath, ...mode, "2dc3"], io)).toBe(0);
+        expect(io.errors).toEqual([]);
+        expect(io.output.join("")).toContain(runId);
+      }
+    });
+
     it("lists candidates for an ambiguous prefix in every mode", async () => {
       const { directory, storePath } = await prefixStore();
       for (const mode of [[], ["--json"], ["--events"]]) {

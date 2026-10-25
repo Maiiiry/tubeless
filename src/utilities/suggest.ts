@@ -36,9 +36,8 @@ function editDistance(left: string, right: string, limit: number): number {
  */
 export function closestMatches(input: string, candidates: Iterable<string>, limit = 3): string[] {
   const needle = input.toLowerCase();
-  const scored: { candidate: string; distance: number; order: number }[] = [];
+  const scored: { candidate: string; distance: number }[] = [];
   const seen = new Set<string>();
-  let order = 0;
   for (const candidate of candidates) {
     if (seen.has(candidate) || candidate === input) continue;
     seen.add(candidate);
@@ -46,14 +45,14 @@ export function closestMatches(input: string, candidates: Iterable<string>, limi
     const maxDistance = Math.max(1, Math.floor(Math.max(needle.length, hay.length) / 3));
     const distance = editDistance(needle, hay, maxDistance);
     if (distance <= maxDistance) {
-      scored.push({ candidate, distance, order: order++ });
+      scored.push({ candidate, distance });
     } else if (needle.length >= 3 && hay.startsWith(needle)) {
       // Prefixes rank after every true near-miss.
-      scored.push({ candidate, distance: maxDistance + 1, order: order++ });
+      scored.push({ candidate, distance: maxDistance + 1 });
     }
   }
   return scored
-    .sort((left, right) => left.distance - right.distance || left.order - right.order)
+    .sort((left, right) => left.distance - right.distance)
     .slice(0, limit)
     .map(({ candidate }) => candidate);
 }

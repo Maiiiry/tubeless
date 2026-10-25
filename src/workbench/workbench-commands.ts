@@ -1,20 +1,14 @@
 import { querySteps } from "../core/pipeline.js";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
-import type {
-  PipelineMetadata,
-  PipelinePlan,
-  PipelinePlanStep,
-  PipelineRunControls,
-} from "../core/pipeline.js";
+import type { PipelinePlan, PipelineRunControls } from "../core/pipeline.js";
 import {
   PIPELINE_MERMAID_DIRECTIONS,
   type PipelineMermaidDirection,
 } from "../core/pipeline-types.js";
 import { PipelineDocumentError, validatePipelineDocument } from "../project/project-document.js";
-import { renderPipelineError, renderPipelinePlan } from "../render/render.js";
+import { renderPipelinePlan } from "../render/render.js";
 import { isWorkbenchPipelineCommand, type WorkbenchPipeline } from "./pipeline-module.js";
-import { terminalSafeText } from "./workbench-agent-history.js";
 import {
   DEFAULT_PIPELINE_PROJECT_FILE,
   loadPipelineProjectFile,
@@ -22,6 +16,7 @@ import {
 } from "./workbench-project-loader.js";
 import {
   errorMessage,
+  terminalSafeText,
   TUBELESS_WORKBENCH_EXIT_CODE,
   writeUsageError,
   type WorkbenchCliIo,
@@ -228,134 +223,20 @@ export async function runValidate(argv: readonly string[], io: WorkbenchCliIo): 
 
 const INSPECT_USAGE = `Usage: tubeless inspect [options] <pipeline-or-command-file>
 
-Show a pipeline's identity, targets, and steps with their dependencies, child pipelines,
-remote engines, and metadata. Nothing is executed.
-
-Step details:
-  depends on      Required inputs; "(optional)" marks optional inputs
-  failure gate    Steps whose failure skips this step
+Show a registered id or exported pipeline's identity plus the default structural plan.
 
 Options:
-  -e, --export <name>    Select a pipeline or command export when the file has more than one
-  -p, --project <path>   Resolve a pipeline or command id from this project file
-      --tag <tag>        Require a step tag (repeatable; all must match)
-      --owner <owner>    Match step owner exactly
-      --domain <domain>  Match step domain exactly
-      --json             Emit identity and the default plan as JSON
-  -h, --help             Show this help
+  -e, --export <name>   Select a pipeline or command export when the file has more than one
+  -p, --project <path>  Resolve a pipeline or command id from this project file
+      --tag <tag>       Require a step tag (repeatable; all must match)
+      --owner <owner>   Match step owner exactly
+      --domain <domain> Match step domain exactly
+      --json            Emit identity and the default plan as JSON
+  -h, --help            Show this help
 `;
 
 function formatIdList(values: readonly string[]): string {
-  return values.length > 0 ? values.map(inlineText).join(", ") : "none";
-}
-
-function metadataFields(metadata: PipelineMetadata): [label: string, value: string][] {
-  const fields: [label: string, value: string][] = [];
-  if (metadata.tags?.length) fields.push(["tags", formatIdList(metadata.tags)]);
-  if (metadata.owner) fields.push(["owner", inlineText(metadata.owner)]);
-  if (metadata.domain) fields.push(["domain", inlineText(metadata.domain)]);
-  if (metadata.annotations && Object.keys(metadata.annotations).length > 0) {
-    fields.push(["annotations", inlineText(JSON.stringify(metadata.annotations))]);
-  }
-  return fields;
-}
-
-function describeNestedPipeline(nested: NonNullable<PipelinePlanStep["nestedPipeline"]>): string {
-  const stepCount = nested.stepIds.length;
-  const details = [`${stepCount} ${stepCount === 1 ? "step" : "steps"}`];
-  if (nested.mode === "iterate" && nested.maxIterations !== undefined) {
-    details.push(`at most ${nested.maxIterations} ${nested.maxIterations === 1 ? "run" : "runs"}`);
-  }
-  if (nested.mode === "for-each" && nested.concurrency !== undefined) {
-    details.push(`concurrency ${nested.concurrency}`);
-  }
-  const kind =
-    nested.mode === "for-each" ? "fan-out" : nested.mode === "iterate" ? "iteration" : "child";
-  return `${kind} pipeline: ${inlineText(nested.pipelineId)} (${details.join(", ")})`;
-}
-
-/** Structural detail lines for one step, without its id or description. */
-function stepDetails(step: PipelinePlanStep): string[] {
-  const dependencies = [
-    ...step.dependencies.map(inlineText),
-    ...step.optionalDependencies.map((id) => `${inlineText(id)} (optional)`),
-  ];
-  const details: string[] = [];
-  if (dependencies.length > 0) details.push(`depends on: ${dependencies.join(", ")}`);
-  if (step.skipAfterFailureOf.length > 0) {
-    details.push(`failure gate: ${formatIdList(step.skipAfterFailureOf)}`);
-  }
-  if (step.nestedPipeline) details.push(describeNestedPipeline(step.nestedPipeline));
-  if (step.remote) {
-    const target = step.remote.target ? ` (${inlineText(step.remote.target)})` : "";
-    details.push(`remote: ${inlineText(step.remote.engine)}${target}`);
-  }
-  if (step.agent) {
-    details.push(
-      `agent capabilities: ${formatIdList(step.agent.capabilities.map(({ name }) => name))}`
-    );
-  }
-  if (step.dryRun !== "run") details.push(`dry run: ${step.dryRun}`);
-  if (step.runtimeSkipPossible) details.push("runtime skip: possible");
-  if (step.metadata) {
-    const fields = metadataFields(step.metadata);
-    if (fields.length > 0) {
-      details.push(fields.map(([label, value]) => `${label}: ${value}`).join("; "));
-    }
-  }
-  return details;
-}
-
-/** One aligned `<id>  <name - description>` row per step, followed by indented details. */
-function renderStepTable(steps: readonly PipelinePlanStep[]): string[] {
-  const rows = steps.map((step) => {
-    const key = inlineText(step.id);
-    const name = optionalInlineText(step.name);
-    return {
-      key,
-      summary: joinNameAndDescription(
-        name === key ? undefined : name,
-        optionalInlineText(step.description)
-      ),
-    };
-  });
-  const detailIndent = " ".repeat(2 + Math.max(0, ...rows.map(({ key }) => key.length)) + 2);
-  const heads = alignedRows(rows, "  ");
-  return steps.flatMap((step, index) => [
-    heads[index]!,
-    ...stepDetails(step).map((detail) => `${detailIndent}${detail}`),
-  ]);
-}
-
-function renderInspection(
-  view: WorkbenchPipeline,
-  plan: PipelinePlan,
-  totalSteps: number,
-  filtered: boolean
-): string {
-  const { name, description } = pipelineIdentityText(view);
-  const metadata = plan.definition?.metadata;
-  const stepsHeading = filtered
-    ? `Steps matching filters (${plan.steps.length} of ${totalSteps}):`
-    : `Steps (${plan.steps.length}):`;
-  return [
-    `Pipeline ${inlineText(view.id)}`,
-    ...(name !== undefined ? [`Name: ${name}`] : []),
-    ...(description !== undefined ? [`Description: ${description}`] : []),
-    `Targets: ${formatIdList(view.targetIds)}`,
-    ...(metadata
-      ? metadataFields(metadata).map(
-          ([label, value]) => `${label[0]!.toUpperCase()}${label.slice(1)}: ${value}`
-        )
-      : []),
-    "",
-    plan.steps.length > 0 ? stepsHeading : `${stepsHeading} none`,
-    ...renderStepTable(plan.steps),
-    ...(plan.errors.length > 0
-      ? ["", "Errors:", ...plan.errors.map((error) => `  ! ${renderPipelineError(error)}`)]
-      : []),
-    "",
-  ].join("\n");
+  return values.length > 0 ? values.join(", ") : "none";
 }
 
 interface WorkbenchInspection {
@@ -410,7 +291,24 @@ export async function runInspect(argv: readonly string[], io: WorkbenchCliIo): P
           return TUBELESS_WORKBENCH_EXIT_CODE.success;
         }
 
-        commandIo.stdout.write(renderInspection(view, plan, completePlan.steps.length, filtered));
+        const { name, description } = pipelineIdentityText(view);
+        commandIo.stdout.write(
+          [
+            `Pipeline ${inlineText(view.id)}`,
+            ...(name ? [`Name: ${name}`] : []),
+            ...(description ? [`Description: ${description}`] : []),
+            `Targets: ${formatIdList(view.targetIds)}`,
+            `Exact steps: ${formatIdList(stepIds)}`,
+            ...(plan.definition?.metadata
+              ? [`Metadata: ${JSON.stringify(plan.definition.metadata)}`]
+              : []),
+            ...plan.steps
+              .filter((step) => step.metadata)
+              .map((step) => `${step.id} metadata: ${JSON.stringify(step.metadata)}`),
+            ...renderPipelinePlan(plan, { explain: false }).split("\n").map(terminalSafeText),
+            "",
+          ].join("\n")
+        );
         return TUBELESS_WORKBENCH_EXIT_CODE.success;
       },
     },

@@ -101,9 +101,9 @@ function formatRunList(runs: readonly StoredPipelineRun[]): string {
 const MIN_RUN_ID_PREFIX_LENGTH = 4;
 const MAX_AMBIGUOUS_RUN_IDS = 5;
 
-/** The part after a run id's first `:` (the generated UUID), or the whole id without one. */
+/** The part after a run id's final `:` (the generated UUID), or the whole id without one. */
 function runIdSuffix(runId: string): string {
-  return runId.slice(runId.indexOf(":") + 1);
+  return runId.slice(runId.lastIndexOf(":") + 1);
 }
 
 type RunIdResolution = { runId: string } | { error: string };

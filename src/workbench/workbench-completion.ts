@@ -1,5 +1,3 @@
-import { parseArgs } from "node:util";
-import type { CliParameterDescriptor } from "../cli/cli.js";
 import { PIPELINE_MERMAID_DIRECTIONS } from "../core/pipeline-types.js";
 import { didYouMean } from "../utilities/suggest.js";
 import {
@@ -12,7 +10,7 @@ import {
   writeUsageError,
   type WorkbenchCliIo,
 } from "./workbench-shared.js";
-import { runWorkbenchSubcommand } from "./workbench-subcommand.js";
+import { parseSubcommandArgs, runWorkbenchSubcommand } from "./workbench-subcommand.js";
 
 /**
  * Protocol for the hidden `tubeless __complete <words...>` command used by the
@@ -31,6 +29,7 @@ type CompletionShell = (typeof COMPLETION_SHELLS)[number];
 interface WorkbenchCommandSummary {
   readonly name: string;
   readonly description: string;
+  run(argv: readonly string[], io: WorkbenchCliIo): Promise<number>;
 }
 
 interface Candidate {
@@ -43,14 +42,16 @@ interface Completion {
   readonly files: boolean;
 }
 
-/** `text` values are free-form; `pipeline`/`target`/`step` come from the project or plan. */
-type FlagValue = "file" | "text" | "pipeline" | "target" | "step" | readonly string[];
+/** `text` values are free-form; `target`/`step` come from the plan. */
+type FlagValue = "file" | "text" | "target" | "step" | readonly string[];
 
 interface CompletionFlag {
   readonly name: string;
   readonly short?: string;
-  readonly description: string;
+  readonly description?: string;
   readonly value?: FlagValue;
+  readonly positional?: boolean;
+  readonly multiple?: boolean;
 }
 
 interface SubcommandCompletion {
@@ -58,123 +59,58 @@ interface SubcommandCompletion {
   readonly positional?: "pipeline" | "file" | readonly string[];
 }
 
-const HELP_FLAG: CompletionFlag = { name: "help", short: "h", description: "Show this help" };
-const EXPORT_FLAG: CompletionFlag = {
-  name: "export",
-  short: "e",
-  value: "text",
-  description: "Select a pipeline or command export",
+const POSITIONAL_COMPLETIONS: Readonly<Record<string, SubcommandCompletion["positional"]>> = {
+  inspect: "pipeline",
+  plan: "pipeline",
+  graph: "pipeline",
+  run: "pipeline",
+  validate: "file",
+  ui: "file",
+  init: ["cloudflare"],
+  auth: ["login", "status", "logout"],
+  cloud: ["list", "run", "logs"],
+  completion: COMPLETION_SHELLS,
 };
-const PROJECT_FLAG: CompletionFlag = {
-  name: "project",
-  short: "p",
-  value: "file",
-  description: "Project file",
-};
-const STORE_FLAG: CompletionFlag = {
-  name: "store",
-  value: "file",
-  description: "SQLite run store",
-};
-const TRACE_FLAG: CompletionFlag = {
-  name: "trace",
-  value: "file",
-  description: "NDJSON trace file",
-};
-const STEP_FILTER_FLAGS: readonly CompletionFlag[] = [
-  { name: "tag", value: "text", description: "Require a step tag (repeatable)" },
-  { name: "owner", value: "text", description: "Match step owner exactly" },
-  { name: "domain", value: "text", description: "Match step domain exactly" },
-];
 
-/**
- * Workbench flags per subcommand. Mirrors each subcommand's option parser; the
- * completion tests compare this table against every subcommand's `--help`.
- */
-const SUBCOMMAND_COMPLETIONS: Readonly<Record<string, SubcommandCompletion>> = {
-  list: {
-    flags: [
-      PROJECT_FLAG,
-      { name: "json", description: "Emit the project inventory as JSON" },
-      HELP_FLAG,
-    ],
-  },
-  validate: {
-    flags: [{ name: "json", description: "Emit a structured validation result" }, HELP_FLAG],
-    positional: "file",
-  },
-  inspect: {
-    flags: [
-      EXPORT_FLAG,
-      PROJECT_FLAG,
-      ...STEP_FILTER_FLAGS,
-      { name: "json", description: "Emit identity and the default plan as JSON" },
-      HELP_FLAG,
-    ],
-    positional: "pipeline",
-  },
-  plan: {
-    flags: [
-      EXPORT_FLAG,
-      PROJECT_FLAG,
-      { name: "target", short: "t", value: "target", description: "Select a declared target" },
-      { name: "step", short: "s", value: "step", description: "Select exact internal steps" },
-      { name: "dry-run", description: "Show each step's dry-run disposition" },
-      { name: "explain", description: "Include target/dependency selection provenance" },
-      { name: "json", description: "Emit the complete structured plan as JSON" },
-      HELP_FLAG,
-    ],
-    positional: "pipeline",
-  },
-  graph: {
-    flags: [
-      EXPORT_FLAG,
-      PROJECT_FLAG,
-      {
-        name: "direction",
-        short: "d",
-        value: PIPELINE_MERMAID_DIRECTIONS,
-        description: "Flowchart direction",
+/** Built-in commands have no descriptor. Read their own help instead of duplicating flag catalogs. */
+async function subcommandSpec(
+  command: WorkbenchCommandSummary,
+  io: WorkbenchCliIo
+): Promise<SubcommandCompletion> {
+  let help = "";
+  await command.run(["--help"], {
+    ...io,
+    stdout: {
+      write: (chunk) => {
+        help += chunk;
       },
-      ...STEP_FILTER_FLAGS,
-      { name: "metadata", description: "Include step metadata in labels" },
-      { name: "descriptions", description: "Include step descriptions in node labels" },
-      { name: "markdown", description: "Wrap the result in a fenced Mermaid Markdown block" },
-      HELP_FLAG,
-    ],
-    positional: "pipeline",
-  },
-  run: {
-    flags: [EXPORT_FLAG, PROJECT_FLAG, STORE_FLAG, TRACE_FLAG, HELP_FLAG],
-    positional: "pipeline",
-  },
-  history: {
-    flags: [
-      STORE_FLAG,
-      TRACE_FLAG,
-      { name: "pipeline", value: "pipeline", description: "Filter by recorded pipeline ID" },
-      { name: "json", description: "Emit the projected run list or run as JSON" },
-      { name: "events", description: "Emit raw store events as NDJSON" },
-      { name: "clear", description: "Delete all recorded history (requires --yes)" },
-      { name: "yes", description: "Confirm --clear" },
-      HELP_FLAG,
-    ],
-  },
-  ui: {
-    flags: [
-      { name: "command", value: "file", description: "Register a launchable pipeline or command" },
-      EXPORT_FLAG,
-      STORE_FLAG,
-      TRACE_FLAG,
-      { name: "host", value: "text", description: "Bind address" },
-      { name: "port", value: "text", description: "HTTP port" },
-      { name: "public-url", value: "text", description: "Host behind an authenticated gateway" },
-      HELP_FLAG,
-    ],
-    positional: "file",
-  },
-  completion: { flags: [HELP_FLAG], positional: COMPLETION_SHELLS },
-};
+    },
+  });
+  const flags = new Map<string, CompletionFlag>();
+  for (const [, short, name, placeholder] of help.matchAll(
+    /(?:-(\w), +)?--([\w-]+)(?: <([^>]+)>)?/g
+  )) {
+    const previous = flags.get(name!);
+    const value: FlagValue | undefined =
+      placeholder === undefined
+        ? undefined
+        : name === "direction"
+          ? PIPELINE_MERMAID_DIRECTIONS
+          : name === "target"
+            ? "target"
+            : name === "step"
+              ? "step"
+              : /^(path|file)/.test(placeholder)
+                ? "file"
+                : "text";
+    flags.set(name!, {
+      name: name!,
+      short: short ?? previous?.short,
+      value: value ?? previous?.value,
+    });
+  }
+  return { flags: [...flags.values()], positional: POSITIONAL_COMPLETIONS[command.name] };
+}
 
 const NO_COMPLETION: Completion = { candidates: [], files: false };
 const FILE_COMPLETION: Completion = { candidates: [], files: true };
@@ -183,31 +119,14 @@ function valuesOf(values: readonly string[]): Completion {
   return { candidates: values.map((value) => ({ value })), files: false };
 }
 
-function describedPipeline(view: object): string | undefined {
-  if ("description" in view && typeof view.description === "string" && view.description) {
-    return view.description;
-  }
-  if ("name" in view && typeof view.name === "string" && view.name) return view.name;
-  return undefined;
-}
-
 async function pipelineIdCandidates(
   projectFile: string | undefined,
   io: WorkbenchCliIo
 ): Promise<Candidate[]> {
   const loaded = await loadPipelineProjectFile(projectFile ?? DEFAULT_PIPELINE_PROJECT_FILE, io);
-  if ("exitCode" in loaded) return [];
-  const candidates = await Promise.all(
-    loaded.registrations.map(async (registration): Promise<Candidate | undefined> => {
-      if (registration.id === undefined) return undefined;
-      const plan = await registration.loadPlan(io);
-      const description = "exitCode" in plan ? undefined : describedPipeline(plan.view);
-      return description === undefined
-        ? { value: registration.id }
-        : { value: registration.id, description };
-    })
-  );
-  return candidates.filter((candidate) => candidate !== undefined);
+  return "exitCode" in loaded
+    ? []
+    : loaded.registrations.flatMap(({ id }) => (id === undefined ? [] : [{ value: id }]));
 }
 
 interface ScannedWords {
@@ -217,13 +136,19 @@ interface ScannedWords {
   readonly passthrough?: readonly string[];
   /** Value-taking flag that the current word completes. */
   readonly pendingFlag?: CompletionFlag;
+  readonly optionsEnded?: boolean;
 }
 
 /** Walk the subcommand's words before the cursor the way its option parser would. */
-function scanWords(words: readonly string[], spec: SubcommandCompletion): ScannedWords {
+function scanWords(
+  words: readonly string[],
+  spec: SubcommandCompletion,
+  splitArguments = true
+): ScannedWords {
   const flagValues = new Map<string, string>();
   const positionals: string[] = [];
   let pendingFlag: CompletionFlag | undefined;
+  let optionsEnded = false;
   for (let index = 0; index < words.length; index++) {
     const word = words[index]!;
     if (pendingFlag) {
@@ -233,28 +158,34 @@ function scanWords(words: readonly string[], spec: SubcommandCompletion): Scanne
       pendingFlag = undefined;
       continue;
     }
-    if (word === "--") {
-      return { flagValues, positionals, passthrough: words.slice(index + 1) };
+    if (word === "--" && !optionsEnded) {
+      if (splitArguments) return { flagValues, positionals, passthrough: words.slice(index + 1) };
+      optionsEnded = true;
+      continue;
     }
     let flag: CompletionFlag | undefined;
     let inlineValue: string | undefined;
-    if (word.startsWith("--")) {
+    if (!optionsEnded && word.startsWith("--")) {
       const separator = word.indexOf("=");
       const name = separator === -1 ? word.slice(2) : word.slice(2, separator);
       flag = spec.flags.find((candidate) => candidate.name === name);
       if (separator !== -1) inlineValue = word.slice(separator + 1);
-    } else if (word.startsWith("-") && word.length > 1) {
+    } else if (!optionsEnded && word.startsWith("-") && word.length > 1) {
       flag = spec.flags.find((candidate) => candidate.short === word[1]);
       if (word.length > 2) inlineValue = word.slice(2);
     } else {
       positionals.push(word);
+      const positional = spec.flags.find(
+        (flag) => flag.positional && (flag.multiple || !flagValues.has(flag.name))
+      );
+      if (positional) flagValues.set(positional.name, word);
       continue;
     }
     if (flag?.value === undefined) continue;
     if (inlineValue === undefined) pendingFlag = flag;
     else flagValues.set(flag.name, inlineValue);
   }
-  return pendingFlag ? { flagValues, positionals, pendingFlag } : { flagValues, positionals };
+  return { flagValues, positionals, pendingFlag, optionsEnded };
 }
 
 async function flagValueCompletion(
@@ -266,9 +197,6 @@ async function flagValueCompletion(
   if (typeof value !== "string") return valuesOf(value);
   if (value === "file") return FILE_COMPLETION;
   if (value === "text") return NO_COMPLETION;
-  if (value === "pipeline") {
-    return { candidates: await pipelineIdCandidates(undefined, io), files: false };
-  }
   const target = scanned.positionals[0];
   if (target === undefined) return NO_COMPLETION;
   const registration = await resolveWorkbenchRegistration(
@@ -282,17 +210,6 @@ async function flagValueCompletion(
   const plan = await registration.loadPlan(io);
   if ("exitCode" in plan) return NO_COMPLETION;
   return valuesOf(value === "target" ? plan.view.targetIds : plan.view.stepIds);
-}
-
-function findParameter(
-  parameters: readonly CliParameterDescriptor[],
-  word: string
-): CliParameterDescriptor | undefined {
-  if (word.startsWith("--")) return parameters.find(({ flag }) => word === `--${flag}`);
-  if (word.length === 2 && word.startsWith("-")) {
-    return parameters.find(({ short }) => short === word[1]);
-  }
-  return undefined;
 }
 
 /** Complete a pipeline command's own arguments after `run <id> --`. */
@@ -315,12 +232,24 @@ async function commandArgumentCompletion(
   if ("exitCode" in loaded) return NO_COMPLETION;
   const { parameters } = loaded.command.descriptor;
 
-  // Bash splits `--flag=value` into `--flag`, `=`, `value`.
-  const previous = scanned.passthrough.at(scanned.passthrough.at(-1) === "=" ? -2 : -1);
-  const valueParameter = previous === undefined ? undefined : findParameter(parameters, previous);
-  if (valueParameter !== undefined && valueParameter.type !== "boolean") {
-    if (valueParameter.choices) return valuesOf(valueParameter.choices);
-    return valueParameter.type === "path" ? FILE_COMPLETION : NO_COMPLETION;
+  const flags: CompletionFlag[] = parameters.map((parameter) => ({
+    name: parameter.flag,
+    short: parameter.short,
+    description: parameter.description,
+    positional: parameter.positional,
+    multiple: parameter.multiple,
+    value:
+      parameter.type === "boolean"
+        ? undefined
+        : (parameter.choices ?? (parameter.type === "path" ? "file" : "text")),
+  }));
+  const args = scanWords(scanned.passthrough, { flags }, false);
+  const parameter =
+    args.pendingFlag ??
+    flags.find((flag) => flag.positional && (flag.multiple || !args.flagValues.has(flag.name)));
+  if (args.pendingFlag || args.optionsEnded || !current.startsWith("-")) {
+    if (parameter?.value === "file") return FILE_COMPLETION;
+    return Array.isArray(parameter?.value) ? valuesOf(parameter.value) : NO_COMPLETION;
   }
   if (current.startsWith("-")) {
     return {
@@ -333,24 +262,22 @@ async function commandArgumentCompletion(
       files: false,
     };
   }
-  const acceptsPath = parameters.some(({ positional, type }) => positional && type === "path");
-  return acceptsPath ? FILE_COMPLETION : NO_COMPLETION;
+  return NO_COMPLETION;
 }
 
 async function subcommandCompletion(
-  command: string,
+  command: WorkbenchCommandSummary,
   words: readonly string[],
   current: string,
   io: WorkbenchCliIo
 ): Promise<Completion> {
-  const spec = SUBCOMMAND_COMPLETIONS[command];
-  if (spec === undefined) return NO_COMPLETION;
+  const spec = await subcommandSpec(command, io);
   // zsh and fish keep `--flag=partial` as one word: complete the value, then restore the prefix.
   const inline = /^(--[^=]+)=(.*)$/s.exec(current);
   const scanned = scanWords(inline ? [...words, inline[1]!] : words, spec);
   let completion: Completion;
   if (scanned.passthrough !== undefined) {
-    if (command !== "run") return NO_COMPLETION;
+    if (command.name !== "run") return NO_COMPLETION;
     completion = await commandArgumentCompletion(
       { ...scanned, passthrough: scanned.passthrough },
       inline ? inline[2]! : current,
@@ -421,11 +348,15 @@ export async function runComplete(
     // Loading evaluates project modules; keep their diagnostics off the terminal.
     const discard = { write: () => true };
     try {
-      completion = await subcommandCompletion(command!, rest.slice(0, -1), current, {
-        cwd: io.cwd,
-        stderr: discard,
-        stdout: discard,
-      });
+      const entry = commands.find(({ name }) => name === command);
+      completion =
+        entry === undefined
+          ? NO_COMPLETION
+          : await subcommandCompletion(entry, rest.slice(0, -1), current, {
+              cwd: io.cwd,
+              stderr: discard,
+              stdout: discard,
+            });
     } catch {
       completion = NO_COMPLETION;
     }
@@ -454,8 +385,6 @@ _tubeless() {
       candidates+=("\${line%%$'\\t'*}")
     fi
   done < <(tubeless __complete "\${COMP_WORDS[@]:1:COMP_CWORD}" 2>/dev/null)
-  # With no candidates, "complete -o default" falls back to file names.
-  ((\${#candidates[@]})) || return 0
   COMPREPLY=("\${candidates[@]}")
   if ((files)); then
     compopt -o filenames 2>/dev/null
@@ -464,7 +393,7 @@ _tubeless() {
     done < <(compgen -f -- "$current")
   fi
 }
-complete -o default -F _tubeless tubeless
+complete -F _tubeless tubeless
 `;
 
 const ZSH_COMPLETION_SCRIPT = `#compdef tubeless
@@ -560,13 +489,7 @@ export async function runCompletion(argv: readonly string[], io: WorkbenchCliIo)
   return runWorkbenchSubcommand(
     {
       usage: COMPLETION_USAGE,
-      parse: (args) =>
-        parseArgs({
-          args: [...args],
-          allowPositionals: true,
-          options: { help: { type: "boolean", short: "h" } },
-          strict: true,
-        }),
+      parse: (args) => parseSubcommandArgs(args, {}),
       positionalCountError: {
         count: 1,
         message: `Pass one shell: ${COMPLETION_SHELLS.join(", ")}.`,

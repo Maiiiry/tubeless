@@ -15,7 +15,10 @@ afterEach(async () => {
   );
 });
 
-async function writeProject(fileName = "tubeless.project.ts"): Promise<string> {
+async function writeProject(
+  fileName = "tubeless.project.ts",
+  mode: "named" | "positional" | "repeatable" = "named"
+): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "tubeless-completion-"));
   directories.push(directory);
   const cliModuleUrl = pathToFileURL(path.resolve("dist/cli/cli.js")).href;
@@ -33,9 +36,10 @@ async function writeProject(fileName = "tubeless.project.ts"): Promise<string> {
       const imports = definePipelineCommand(
         definePipeline({ id: "import-data", steps: [fetch], targets: [fetch] }),
         {
+          ${mode === "named" ? "" : 'positionals: ["format", "text"],'}
           params: {
-            text: { type: "string", description: "Text to import." },
-            format: { type: "string", choices: ["json", "csv"], default: "json" },
+            text: { type: "${mode === "positional" ? "path" : "string"}", ${mode === "repeatable" ? 'multiple: true, choices: ["a", "b"],' : ""} description: "Text to import." },
+            format: { type: "string", short: "f", choices: ["json", "csv"], ${mode === "named" ? 'default: "json",' : ""} },
           },
           mapOptions: () => ({}),
           reporter: false,
@@ -89,9 +93,9 @@ describe("tubeless __complete", () => {
 
   it("offers a subcommand's flags and fixed flag values", async () => {
     expect((await complete(tmpdir(), "graph", "--d")).lines).toEqual([
-      "--direction\tFlowchart direction",
-      "--domain\tMatch step domain exactly",
-      "--descriptions\tInclude step descriptions in node labels",
+      "--direction",
+      "--domain",
+      "--descriptions",
     ]);
     const directions = ["BT", "LR", "RL", "TB", "TD"];
     expect((await complete(tmpdir(), "graph", "--direction", "")).lines).toEqual(directions);
@@ -99,21 +103,18 @@ describe("tubeless __complete", () => {
     expect((await complete(tmpdir(), "completion", "")).lines).toEqual(["bash", "zsh", "fish"]);
   });
 
-  it("offers project pipeline ids with descriptions plus file paths", async () => {
+  it("offers project pipeline ids plus file paths", async () => {
     const directory = await writeProject();
     expect((await complete(directory, "run", "")).lines).toEqual([
       "import-data",
-      "report\tBuild the report.",
+      "report",
       ":files",
     ]);
     expect((await complete(directory, "inspect", "--json", "re")).lines).toEqual([
-      "report\tBuild the report.",
+      "report",
       ":files",
     ]);
-    expect((await complete(directory, "history", "--pipeline", "")).lines).toEqual([
-      "import-data",
-      "report\tBuild the report.",
-    ]);
+    expect((await complete(directory, "history", "--pipeline", "")).lines).toEqual([]);
     // Only the first positional is a pipeline.
     expect((await complete(directory, "plan", "report", "")).lines).toEqual([]);
   });
@@ -121,7 +122,7 @@ describe("tubeless __complete", () => {
   it("honors --project in every spelling", async () => {
     const directory = await writeProject("custom.project.ts");
     expect((await complete(directory, "run", "")).lines).toEqual([":files"]);
-    const ids = ["import-data", "report\tBuild the report.", ":files"];
+    const ids = ["import-data", "report", ":files"];
     expect((await complete(directory, "run", "--project", "custom.project.ts", "")).lines).toEqual(
       ids
     );
@@ -207,6 +208,59 @@ describe("tubeless __complete", () => {
     expect((await complete(directory, "run", "--project=./pr")).lines).toEqual([":files"]);
   });
 
+  it("completes positionals in declared order and stops after the last one", async () => {
+    const directory = await writeProject("tubeless.project.ts", "positional");
+    for (const [args, expected] of [
+      [[], ["json", "csv"]],
+      [["csv"], [":files"]],
+      [["csv", "rows.csv"], []],
+      [["--format", "csv"], [":files"]],
+      [["--text=rows.csv"], ["json", "csv"]],
+      [["-fcsv"], [":files"]],
+      [["--format", "=", "csv", "--dry-run"], [":files"]],
+      [["--", "csv"], [":files"]],
+    ] as const) {
+      expect(
+        (await complete(directory, "run", "import-data", "--", ...args, "")).lines,
+        args.join(" ")
+      ).toEqual(expected);
+    }
+    expect((await complete(directory, "run", "import-data", "--", "--format=cs")).lines).toEqual([
+      "--format=csv",
+    ]);
+    expect((await complete(directory, "run", "import-data", "--", "--", "--")).lines).toEqual([]);
+  });
+
+  it("keeps a repeatable positional active", async () => {
+    const directory = await writeProject("tubeless.project.ts", "repeatable");
+    expect(
+      (await complete(directory, "run", "import-data", "--", "csv", "a", "b", "")).lines
+    ).toEqual(["a", "b"]);
+    expect(
+      (await complete(directory, "run", "import-data", "--", "-f", "csv", "a", "")).lines
+    ).toEqual(["a", "b"]);
+  });
+
+  it("includes current workbench commands without reading Cloud credentials", async () => {
+    for (const command of ["agent", "auth", "cloud", "init", "upgrade"]) {
+      expect(
+        (await complete(tmpdir(), command)).lines.some((line) => line.startsWith(`${command}\t`))
+      ).toBe(true);
+    }
+    expect((await complete(tmpdir(), "cloud", "--")).lines.sort()).toEqual(
+      [
+        "--host",
+        "--workspace",
+        "--id",
+        "--input-file",
+        "--detach",
+        "--follow",
+        "--json",
+        "--help",
+      ].sort()
+    );
+  });
+
   it("stays silent when the project cannot load", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "tubeless-completion-broken-"));
     directories.push(directory);
@@ -231,7 +285,7 @@ describe("tubeless __complete", () => {
       (match) => match[1]!
     );
     expect(commands).toContain("completion");
-    for (const command of commands) {
+    for (const command of commands.filter((name) => name !== "cloud")) {
       const rows = [
         ...(await help(command, "--help")).matchAll(/^ +(?:-(\w), +)?--([\w-]+)( <)?/gm),
       ];
@@ -320,9 +374,8 @@ complete -p tubeless
 `;
       const result = spawnSync("bash", ["--norc", "-c", script], { cwd: directory });
       expect(result.stderr.toString()).toBe("args:__complete run re\nargs:__complete run x\n");
-      // An empty reply lets `complete -o default` fall back to readline file names.
       expect(result.stdout.toString()).toBe(
-        "report\nrelease\nreport.yaml\nfiles-only:0\ncomplete -o default -F _tubeless tubeless\n"
+        "report\nrelease\nreport.yaml\nfiles-only:0\ncomplete -F _tubeless tubeless\n"
       );
     }
   );

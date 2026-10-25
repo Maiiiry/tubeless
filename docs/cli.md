@@ -337,19 +337,19 @@ or Studio. Optional Node helpers live in `tubeless/node`.
 
 ### Executable commands
 
-| Command             | Accepts                          | Does                                                                |
-| ------------------- | -------------------------------- | ------------------------------------------------------------------- |
-| `tubeless list`     | A project file                   | Lists project pipeline IDs with their names and descriptions        |
-| `tubeless validate` | A YAML or JSON pipeline document | Checks document structure and metadata without loading handlers     |
-| `tubeless inspect`  | A pipeline or command export     | Shows identity, targets, and each step with its dependencies        |
-| `tubeless plan`     | A pipeline or command export     | Previews selection without executing or requiring domain options    |
-| `tubeless graph`    | A pipeline or command export     | Writes Mermaid flowchart source                                     |
-| `tubeless run`      | A pipeline ID or command export  | Infers or validates command arguments and runs the pipeline         |
-| `tubeless history`  | An optional run id               | Lists or shows recorded runs from SQLite or a finished NDJSON trace |
-| `tubeless upgrade`  | An optional `--store` path       | Rewrites an older SQLite run store after `--yes`                    |
-| `tubeless ui`       | An optional project file         | Serves the local run studio; see [studio](./studio.md)              |
-| `tubeless completion` | `bash`, `zsh`, or `fish` | Prints a shell completion script |
-| `tubeless init`     | A deploy target                  | Scaffolds deployment files; see [init](#init)                       |
+| Command               | Accepts                          | Does                                                                |
+| --------------------- | -------------------------------- | ------------------------------------------------------------------- |
+| `tubeless list`       | A project file                   | Lists project pipeline IDs with their names and descriptions        |
+| `tubeless validate`   | A YAML or JSON pipeline document | Checks document structure and metadata without loading handlers     |
+| `tubeless inspect`    | A pipeline or command export     | Shows identity, targets, and the default structural plan            |
+| `tubeless plan`       | A pipeline or command export     | Previews selection without executing or requiring domain options    |
+| `tubeless graph`      | A pipeline or command export     | Writes Mermaid flowchart source                                     |
+| `tubeless run`        | A pipeline ID or command export  | Infers or validates command arguments and runs the pipeline         |
+| `tubeless history`    | An optional run id               | Lists or shows recorded runs from SQLite or a finished NDJSON trace |
+| `tubeless upgrade`    | An optional `--store` path       | Rewrites an older SQLite run store after `--yes`                    |
+| `tubeless ui`         | An optional project file         | Serves the local run studio; see [studio](./studio.md)              |
+| `tubeless completion` | `bash`, `zsh`, or `fish`         | Prints a shell completion script                                    |
+| `tubeless init`       | A deploy target                  | Scaffolds deployment files; see [init](#init)                       |
 
 Use `tubeless validate [--json] pipelines.yaml` for a fast document-only check.
 It supports `.yaml`, `.yml`, and `.json`; it does not resolve handlers, check the
@@ -473,10 +473,8 @@ tubeless inspect [options] <pipeline-id-or-file>
 - `--tag <tag>` requires a step tag; repeat it to require several
 - `--owner <owner>` and `--domain <domain>` match step metadata exactly
 
-Text output shows the pipeline name, description, targets, and metadata, then one
-row per step with its dependencies (optional ones marked), failure gates, child,
-fan-out, iteration, or remote composition, dry-run behavior, and step metadata.
-Use `tubeless plan` for selection previews.
+Text output shows the pipeline name, description, targets, metadata, and the default
+structural plan. Use `tubeless plan` for selection previews.
 
 ## Plan
 

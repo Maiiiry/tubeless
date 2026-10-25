@@ -95,7 +95,13 @@ export function commandDescriptor(
   params: CliParamsSchema,
   positionals: readonly string[]
 ): CliCommandDescriptor {
-  const parameters = Object.entries(params).map(([key, param]): CliParameterDescriptor => {
+  // Preserve schema order for flags while ordering positional slots as declared.
+  const positionalEntries = positionals.map((key) => [key, params[key]!] as const);
+  let positionalIndex = 0;
+  const entries = Object.entries(params).map((entry) =>
+    positionals.includes(entry[0]) ? positionalEntries[positionalIndex++]! : entry
+  );
+  const parameters = entries.map(([key, param]): CliParameterDescriptor => {
     const defaultValue = param.type === "boolean" ? (param.default ?? false) : param.default;
     const required =
       param.type !== "boolean" &&

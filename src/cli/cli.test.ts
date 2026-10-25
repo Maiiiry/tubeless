@@ -46,6 +46,21 @@ describe("defineCommand: string params", () => {
     expect(Object.isFrozen(command.descriptor.parameters[2]?.choices)).toBe(true);
   });
 
+  it("describes positional parameters in their declared argument order", () => {
+    const command = defineCommand({
+      params: { file: { type: "path" }, format: { type: "string" } },
+      positionals: ["format", "file"],
+      run: (values) => values,
+    });
+    expect(
+      command.descriptor.parameters.filter(({ positional }) => positional).map(({ key }) => key)
+    ).toEqual(["format", "file"]);
+    expect(command.parse(["csv", "rows.csv"], { cwd: "/tmp" })).toMatchObject({
+      kind: "values",
+      values: { format: "csv", file: "/tmp/rows.csv" },
+    });
+  });
+
   it("parses a provided value", () => {
     const command = defineCommand({
       params: { version: { type: "string" } },

@@ -42,11 +42,31 @@ const WORKBENCH_COMMANDS = [
     description: "Show recorded runs from the local SQLite store",
     run: runHistory,
   },
-  { name: "upgrade", description: "Rewrite an older SQLite run store before writing to it", run: runUpgrade },
-  { name: "agent", description: "Prompt a workspace agent with a live execution DAG", run: async (argv, io) => (await import("./workbench-agent.js")).runAgent(argv, io) },
-  { name: "init", description: "Scaffold a deployment (cloudflare)", run: async (argv, io) => (await import("./workbench-init.js")).runInit(argv, io) },
-  { name: "auth", description: "Sign in to Tubeless Cloud", run: async (argv, io) => (await import("./workbench-auth.js")).runAuth(argv, io) },
-  { name: "cloud", description: "List and run deployed Cloud pipelines", run: async (argv, io) => (await import("./workbench-cloud.js")).runCloud(argv, io) },
+  {
+    name: "upgrade",
+    description: "Rewrite an older SQLite run store before writing to it",
+    run: runUpgrade,
+  },
+  {
+    name: "agent",
+    description: "Prompt a workspace agent with a live execution DAG",
+    run: async (argv, io) => (await import("./workbench-agent.js")).runAgent(argv, io),
+  },
+  {
+    name: "init",
+    description: "Scaffold a deployment (cloudflare)",
+    run: async (argv, io) => (await import("./workbench-init.js")).runInit(argv, io),
+  },
+  {
+    name: "auth",
+    description: "Sign in to Tubeless Cloud",
+    run: async (argv, io) => (await import("./workbench-auth.js")).runAuth(argv, io),
+  },
+  {
+    name: "cloud",
+    description: "List and run deployed Cloud pipelines",
+    run: async (argv, io) => (await import("./workbench-cloud.js")).runCloud(argv, io),
+  },
   { name: "ui", description: "Open the optional local run studio", run: runUi },
   {
     name: "completion",

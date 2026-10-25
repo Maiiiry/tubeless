@@ -156,6 +156,8 @@ export const studioPipelineSummarySchema = wireObject({
   nestedRunCount: count,
   runningCount: count,
   latestStartedAtMs: number,
+  /** Outcome of the newest run at any depth; `recent` lists top-level runs when any exist. */
+  latestStatus: wireEnum(["running", "completed", "failed", "cancelled"]),
   recent: wireArray(
     wireObject({ runId: id, status: wireEnum(["running", "completed", "failed", "cancelled"]) }),
     { maxItems: STUDIO_PIPELINE_RECENT_RUNS }

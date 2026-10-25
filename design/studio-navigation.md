@@ -128,7 +128,8 @@ Two additions to the internal snapshot endpoint; everything else already exists.
    newest first, using the existing paging and `query` search. Without it the
    endpoint keeps returning top-level runs.
 2. The snapshot gains `pipelines`: one entry per recorded pipeline ID with
-   `topLevelRunCount`, `nestedRunCount`, `runningCount`, `latestStartedAtMs`, and
+   `topLevelRunCount`, `nestedRunCount`, `runningCount`, `latestStartedAtMs`,
+   `latestStatus` (the newest run at any depth, which drives the status dot), and
    `recent` (up to ten `{ runId, status }`, newest first, top-level runs when any
    exist, otherwise nested runs). It is bounded like other lists and derived from
    the same history index. The ETag already covers it.

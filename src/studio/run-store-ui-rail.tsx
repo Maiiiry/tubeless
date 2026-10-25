@@ -44,10 +44,10 @@ export function railPipelines(
   return { pipelines: pipelines.sort(byName), nested: nested.sort(byName) };
 }
 
-/** Latest outcome for the status dot; any running run wins. */
+/** Status dot: any running run wins, otherwise the newest run at any depth. */
 export function latestStatus(summary: StudioPipelineSummary | undefined): string {
   if (!summary) return "idle";
-  return summary.runningCount ? "running" : (summary.recent[0]?.status ?? "idle");
+  return summary.runningCount ? "running" : summary.latestStatus;
 }
 
 function PipelineRow({

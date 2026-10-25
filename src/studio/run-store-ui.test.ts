@@ -1025,6 +1025,7 @@ describe("local pipeline run studio", () => {
         nestedRunCount: 0,
         runningCount: 1,
         latestStartedAtMs: 15,
+        latestStatus: "running",
         recent: [
           { runId: "import-live", status: "running" },
           ...[11, 10, 9, 8, 7, 6, 5, 4, 3].map((index) => ({
@@ -1039,6 +1040,7 @@ describe("local pipeline run studio", () => {
         nestedRunCount: 2,
         runningCount: 1,
         latestStartedAtMs: 14,
+        latestStatus: "running",
         recent: [
           { runId: "enrich-child-b", status: "running" },
           { runId: "enrich-child-a", status: "completed" },
@@ -1064,6 +1066,37 @@ describe("local pipeline run studio", () => {
     expect(scopedImport.runs[0].runId).toBe("import-live");
     expect(scopedImport.matchingRootCount).toBe(13);
     expect((await fetch(endpoint + "?pipeline=" + "x".repeat(4097))).status).toBe(400);
+  });
+
+  it("reports the newest outcome at any depth beside the top-level strip", () => {
+    const summary = (
+      runId: string,
+      rootRunId: string,
+      startedAtMs: number,
+      status: StoredRunSummary["status"]
+    ): StoredRunSummary => ({
+      runId,
+      rootRunId,
+      pipelineId: "enrich",
+      startedAtMs,
+      status,
+      dryRun: false,
+      eventCount: 2,
+      subtreeEventCount: 2,
+      stepCount: 0,
+      descendantCount: 0,
+      subtreeIsRunning: false,
+      activity: { count: 0, names: [] },
+    });
+    const [enrich] = summarizePipelines([
+      summary("top", "top", 1, "completed"),
+      summary("child", "parent", 2, "cancelled"),
+    ]);
+    expect(enrich).toMatchObject({
+      latestStartedAtMs: 2,
+      latestStatus: "cancelled",
+      recent: [{ runId: "top", status: "completed" }],
+    });
   });
 
   it("summarizes a pipeline with more runs than the call stack allows arguments", () => {

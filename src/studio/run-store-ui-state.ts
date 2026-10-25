@@ -349,6 +349,10 @@ export function summarizePipelines(summaries: Iterable<StoredRunSummary>): Studi
   return [...byPipeline]
     .map(([pipelineId, { topLevel, nested }]) => {
       const all = [...topLevel, ...nested];
+      // A loop rather than Math.max(...): spreading every run can exceed the call stack.
+      const latest = all.reduce((newest, run) =>
+        run.startedAtMs > newest.startedAtMs ? run : newest
+      );
       const recent = (topLevel.length ? topLevel : nested)
         .sort(newestFirst)
         .slice(0, STUDIO_PIPELINE_RECENT_RUNS)
@@ -358,11 +362,8 @@ export function summarizePipelines(summaries: Iterable<StoredRunSummary>): Studi
         topLevelRunCount: topLevel.length,
         nestedRunCount: nested.length,
         runningCount: all.filter((run) => run.status === "running").length,
-        // A loop rather than Math.max(...): spreading every run can exceed the call stack.
-        latestStartedAtMs: all.reduce(
-          (latest, run) => Math.max(latest, run.startedAtMs),
-          -Infinity
-        ),
+        latestStartedAtMs: latest.startedAtMs,
+        latestStatus: latest.status,
         recent,
       };
     })

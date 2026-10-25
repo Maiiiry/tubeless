@@ -29,6 +29,7 @@ const summary = (
   nestedRunCount: 0,
   runningCount: 0,
   latestStartedAtMs: 1,
+  latestStatus: "completed",
   recent: [{ runId: `${pipelineId}-1`, status: "completed" }],
   ...overrides,
 });
@@ -73,9 +74,13 @@ describe("pipeline rail", () => {
 
   it("shows the latest outcome, with any running run first", () => {
     expect(latestStatus(undefined)).toBe("idle");
-    expect(latestStatus(summary("a", { recent: [{ runId: "1", status: "failed" }] }))).toBe(
-      "failed"
-    );
+    expect(latestStatus(summary("a", { latestStatus: "failed" }))).toBe("failed");
+    // A newer nested failure outranks the top-level-only strip.
+    expect(
+      latestStatus(
+        summary("a", { latestStatus: "failed", recent: [{ runId: "1", status: "completed" }] })
+      )
+    ).toBe("failed");
     expect(latestStatus(summary("a", { runningCount: 1 }))).toBe("running");
   });
 

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { describe, expect, it, vi } from "vitest";
 import { stdioTransport } from "./mcp-stdio.js";
 
 describe("MCP stdio shutdown", () => {
@@ -37,7 +38,15 @@ describe("MCP stdio shutdown", () => {
         const closing = transport.close();
         expect(transport.close()).toBe(closing);
         await closing;
-        if (!escaped) expect(() => process.kill(pid!, 0)).toThrow();
+        if (!escaped) {
+          await vi.waitFor(() => {
+            const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+            expect(state.error).toBeUndefined();
+            expect([0, 1]).toContain(state.status);
+            // Killed orphans can retain a PID until the host's init process reaps them.
+            if (state.status === 0) expect(state.stdout.trim()).toMatch(/^Z/);
+          });
+        }
       } finally {
         if (pid !== undefined) {
           try {

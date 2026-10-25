@@ -1,7 +1,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as runStore from "../run-store/run-store.js";
 import { openSqlitePipelineRunStore } from "../run-store/run-store-sqlite.js";
 import { decodePipelineTraceEvent } from "../tracing/tracing-codec.js";
 import type { PipelineTraceEvent } from "../tracing/tracing.js";
@@ -229,6 +230,41 @@ describe("runHistory", () => {
         "",
       ].join("\n")
     );
+  });
+
+  it("aligns large histories without exceeding the function argument limit", async () => {
+    const directory = await tempDir();
+    const filename = path.join(directory, "runs.ndjson");
+    await writeFile(
+      filename,
+      `${failedRunEvents.map((next) => JSON.stringify(next)).join("\n")}\n`
+    );
+    const projector = runStore.createPipelineRunProjector();
+    projector.append(failedRunEvents.map((next, id) => ({ ...next, id })));
+    const snapshot = projector.snapshot();
+    const runs = Array.from({ length: 150_000 }, (_, index) => ({
+      ...snapshot.runs[0]!,
+      runId: `run-${index}`,
+    }));
+    runs[runs.length - 1] = { ...runs.at(-1)!, runId: "longest-run-id-at-the-end" };
+    // Supply a large projection without turning a formatting regression into a storage load test.
+    const createProjector = vi.spyOn(runStore, "createPipelineRunProjector").mockReturnValue({
+      ...projector,
+      snapshot: () => ({ ...snapshot, runs }),
+    });
+    try {
+      const io = captureIo(directory);
+      expect(await runHistory(["--trace", filename], io)).toBe(
+        TUBELESS_WORKBENCH_EXIT_CODE.success
+      );
+      expect(io.errors).toEqual([]);
+      const lines = io.output.join("").trimEnd().split("\n");
+      expect(lines).toHaveLength(runs.length);
+      expect(lines.at(-1)).toContain("longest-run-id-at-the-end");
+      expect(lines[0]!.indexOf("import")).toBe(lines.at(-1)!.indexOf("import"));
+    } finally {
+      createProjector.mockRestore();
+    }
   });
 
   it("shows artifact identity and preview status in terminal and JSON history", async () => {

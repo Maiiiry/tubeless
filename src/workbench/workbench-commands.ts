@@ -85,7 +85,7 @@ function alignedRows(
   rows: readonly { key: string; summary: string | undefined }[],
   indent = ""
 ): string[] {
-  const width = Math.max(0, ...rows.map(({ key }) => key.length));
+  const width = rows.reduce((width, { key }) => Math.max(width, key.length), 0);
   return rows.map(({ key, summary }) =>
     summary === undefined ? `${indent}${key}` : `${indent}${key.padEnd(width)}  ${summary}`
   );

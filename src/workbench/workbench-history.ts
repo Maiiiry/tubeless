@@ -84,7 +84,7 @@ function formatRunList(runs: readonly StoredPipelineRun[]): string {
     run.durationMs === undefined ? "" : `${run.durationMs}ms`,
   ]);
   const widths = (rows[0] ?? []).map((_, column) =>
-    Math.max(...rows.map((row) => row[column]!.length))
+    rows.reduce((width, row) => Math.max(width, row[column]!.length), 0)
   );
   // Columns no run fills are dropped; the trailing columns are tool-generated, so trimEnd only
   // removes padding.
@@ -173,8 +173,8 @@ function formatRunDetail(run: StoredPipelineRun): string {
   if (run.durationMs !== undefined) lines.push(`Duration ${run.durationMs}ms`);
   lines.push("", "Steps:");
   const stepIds = run.steps.map((step) => terminalSafeText(step.id));
-  const idWidth = Math.max(0, ...stepIds.map((id) => id.length));
-  const statusWidth = Math.max(0, ...run.steps.map((step) => step.status.length));
+  const idWidth = stepIds.reduce((width, id) => Math.max(width, id.length), 0);
+  const statusWidth = run.steps.reduce((width, step) => Math.max(width, step.status.length), 0);
   for (const [index, step] of run.steps.entries()) {
     const columns = [stepIds[index]!.padEnd(idWidth), step.status.padEnd(statusWidth)];
     if (step.durationMs !== undefined) columns.push(`${step.durationMs}ms`);

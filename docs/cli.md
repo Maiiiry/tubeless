@@ -445,7 +445,8 @@ tubeless completion fish | source      # ~/.config/fish/config.fish
 Completion covers commands, flags, project pipeline IDs from the selected project
 file, `graph --direction` values, `plan --target` and `--step` IDs, and the flags
 and choice values of the pipeline command after `tubeless run <id> --`. Project
-files are loaded to read IDs, but no handlers run.
+files are loaded to read IDs, but no handlers run. Fish omits candidates containing
+tabs because its native completion interface reserves tabs for descriptions.
 
 ## List
 

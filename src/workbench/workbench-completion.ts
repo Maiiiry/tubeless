@@ -6,6 +6,7 @@ import {
   resolveWorkbenchRegistration,
 } from "./workbench-project-loader.js";
 import {
+  terminalSafeText,
   TUBELESS_WORKBENCH_EXIT_CODE,
   writeUsageError,
   type WorkbenchCliIo,
@@ -13,14 +14,11 @@ import {
 import { parseSubcommandArgs, runWorkbenchSubcommand } from "./workbench-subcommand.js";
 
 /**
- * Protocol for the hidden `tubeless __complete <words...>` command used by the
- * generated shell scripts. The words are everything after `tubeless` up to and
- * including the word under the cursor (empty when the cursor follows a space).
- * Stdout carries one candidate per line as `value` or `value<TAB>description`,
- * already filtered by the current word's prefix. A final `:files` line asks the
- * shell to also complete file paths. Failures print nothing and still exit 0.
+ * Hidden shell protocol: NUL-delimited triples of kind, value, and description.
+ * `v` records carry candidates; `f` records request files and have two empty fields.
+ * Shell arguments cannot contain NUL, so those values are omitted. Failures exit 0.
  */
-const FILES_DIRECTIVE = ":files";
+const FILES_DIRECTIVE = "f";
 
 const COMPLETION_SHELLS = ["bash", "zsh", "fish"] as const;
 type CompletionShell = (typeof COMPLETION_SHELLS)[number];
@@ -143,7 +141,7 @@ interface ScannedWords {
 function scanWords(
   words: readonly string[],
   spec: SubcommandCompletion,
-  splitArguments = true
+  mode: "workbench" | "run" | "pipeline" = "workbench"
 ): ScannedWords {
   const flagValues = new Map<string, string>();
   const positionals: string[] = [];
@@ -159,7 +157,7 @@ function scanWords(
       continue;
     }
     if (word === "--" && !optionsEnded) {
-      if (splitArguments) return { flagValues, positionals, passthrough: words.slice(index + 1) };
+      if (mode === "run") return { flagValues, positionals, passthrough: words.slice(index + 1) };
       optionsEnded = true;
       continue;
     }
@@ -172,7 +170,7 @@ function scanWords(
       if (separator !== -1) inlineValue = word.slice(separator + 1);
     } else if (!optionsEnded && word.startsWith("-") && word.length > 1) {
       // Pipeline commands require a single short letter; parseArgs also accepts attached values.
-      if (!splitArguments && word.length !== 2) continue;
+      if (mode === "pipeline" && word.length !== 2) continue;
       flag = spec.flags.find((candidate) => candidate.short === word[1]);
       if (word.length > 2) inlineValue = word.slice(2);
     } else {
@@ -245,7 +243,7 @@ async function commandArgumentCompletion(
         ? undefined
         : (parameter.choices ?? (parameter.type === "path" ? "file" : "text")),
   }));
-  const args = scanWords(scanned.passthrough, { flags }, false);
+  const args = scanWords(scanned.passthrough, { flags }, "pipeline");
   const parameter =
     args.pendingFlag ??
     flags.find((flag) => flag.positional && (flag.multiple || !args.flagValues.has(flag.name)));
@@ -275,8 +273,10 @@ async function subcommandCompletion(
 ): Promise<Completion> {
   const spec = await subcommandSpec(command, io);
   // zsh and fish keep `--flag=partial` as one word: complete the value, then restore the prefix.
-  const inline = /^(--[^=]+)=(.*)$/s.exec(current);
-  const scanned = scanWords(inline ? [...words, inline[1]!] : words, spec);
+  const mode = command.name === "run" ? "run" : "workbench";
+  let scanned = scanWords(words, spec, mode);
+  const inline = !scanned.optionsEnded && /^(--[^=]+)=(.*)$/s.exec(current);
+  if (inline) scanned = scanWords([...words, inline[1]!], spec, mode);
   let completion: Completion;
   if (scanned.passthrough !== undefined) {
     if (command.name !== "run") return NO_COMPLETION;
@@ -309,7 +309,7 @@ async function optionOrPositionalCompletion(
   current: string,
   io: WorkbenchCliIo
 ): Promise<Completion> {
-  if (current.startsWith("-")) {
+  if (!scanned.optionsEnded && current.startsWith("-")) {
     return {
       candidates: spec.flags.map(({ name, description }) => ({ value: `--${name}`, description })),
       files: false,
@@ -364,27 +364,30 @@ export async function runComplete(
     }
   }
 
-  const lines = completion.candidates
-    .filter(({ value }) => value.startsWith(current))
-    .map(({ value, description }) =>
-      description ? `${value}\t${description.replace(/\s+/g, " ").trim()}` : value
+  const records = completion.candidates
+    .filter(({ value }) => value.startsWith(current) && !value.includes("\0"))
+    .map(
+      ({ value, description }) =>
+        `v\0${value}\0${terminalSafeText(description ?? "")
+          .replace(/\s+/g, " ")
+          .trim()}\0`
     );
-  if (completion.files) lines.push(FILES_DIRECTIVE);
-  if (lines.length > 0) io.stdout.write(`${lines.join("\n")}\n`);
+  if (completion.files) records.push(`${FILES_DIRECTIVE}\0\0\0`);
+  if (records.length > 0) io.stdout.write(records.join(""));
   return TUBELESS_WORKBENCH_EXIT_CODE.success;
 }
 
 const BASH_COMPLETION_SCRIPT = `# bash completion for tubeless
 # Install: eval "$(tubeless completion bash)"
 _tubeless() {
-  local current="\${COMP_WORDS[COMP_CWORD]}" line files=0
+  local current="\${COMP_WORDS[COMP_CWORD]}" kind value description line files=0
   local -a candidates=()
   COMPREPLY=()
-  while IFS= read -r line; do
-    if [[ "$line" == "${FILES_DIRECTIVE}" ]]; then
+  while IFS= read -r -d '' kind && IFS= read -r -d '' value && IFS= read -r -d '' description; do
+    if [[ "$kind" == "${FILES_DIRECTIVE}" ]]; then
       files=1
-    elif [[ -n "$line" ]]; then
-      candidates+=("\${line%%$'\\t'*}")
+    elif [[ "$kind" == v ]]; then
+      candidates+=("$value")
     fi
   done < <(tubeless __complete "\${COMP_WORDS[@]:1:COMP_CWORD}" 2>/dev/null)
   COMPREPLY=("\${candidates[@]}")
@@ -402,23 +405,16 @@ const ZSH_COMPLETION_SCRIPT = `#compdef tubeless
 # zsh completion for tubeless
 # Install: source <(tubeless completion zsh)
 _tubeless() {
-  local line value files=0 ret=1
+  local kind value description files=0 ret=1
   local -a candidates
-  for line in "\${(@f)$(tubeless __complete "\${(@)words[2,CURRENT]}" 2>/dev/null)}"; do
-    if [[ "$line" == "${FILES_DIRECTIVE}" ]]; then
+  while IFS= read -r -d '' kind && IFS= read -r -d '' value && IFS= read -r -d '' description; do
+    if [[ "$kind" == "${FILES_DIRECTIVE}" ]]; then
       files=1
-    elif [[ -n "$line" ]]; then
-      value="\${line%%$'\\t'*}"
-      value="\${value//:/\\\\:}"
-      if [[ "$line" == *$'\\t'* ]]; then
-        candidates+=("$value:\${line#*$'\\t'}")
-      else
-        candidates+=("$value")
-      fi
+    elif [[ "$kind" == v ]]; then
+      candidates+=("$value")
     fi
-  done
-  (( \${#candidates} )) && _describe -t tubeless-values 'tubeless' candidates && ret=0
-  # Complete the path after "--flag=" while keeping the flag prefix.
+  done < <(tubeless __complete "\${(@)words[2,CURRENT]}" 2>/dev/null)
+  (( \${#candidates} )) && compadd -- "\${candidates[@]}" && ret=0
   if (( files )); then
     [[ "$PREFIX" == --*=* ]] && compset -P '*='
     _files && ret=0
@@ -439,23 +435,25 @@ function __tubeless_complete
     set -e tokens[1]
     set -l current (commandline -ct)
     set -l files 0
-    for line in (tubeless __complete $tokens "$current" 2>/dev/null)
-        if test "$line" = "${FILES_DIRECTIVE}"
+    tubeless __complete $tokens "$current" 2>/dev/null | while read -lz kind; and read -lz value; and read -lz description
+        if test "$kind" = "${FILES_DIRECTIVE}"
             set files 1
-        else if test -n "$line"
-            printf '%s\\n' $line
+        else if test "$kind" = v
+            # Fish reserves tabs for descriptions even in NUL-delimited completions.
+            if not string match -rq '\\t' -- "$value"
+                printf '%s\\t%s\\0' "$value" "$description"
+            end
         end
     end
     if test $files = 1
-        # Complete the path after "--flag=" while keeping the flag prefix.
         set -l prefix (string match -r -- '^--[^=]+=' "$current")
         set -l path (string replace -r -- '^--[^=]+=' '' "$current")
         for candidate in (__fish_complete_path "$path")
-            printf '%s%s\\n' "$prefix" "$candidate"
+            printf '%s%s\\0' "$prefix" "$candidate"
         end
     end
 end
-complete -c tubeless -f -a '(__tubeless_complete)'
+complete -c tubeless -f -a '(__tubeless_complete | string split0)'
 `;
 
 const COMPLETION_SCRIPTS: Readonly<Record<CompletionShell, string>> = {

@@ -1,3 +1,8 @@
+import {
+  STUDIO_HISTORY_PAGE_SIZE,
+  STUDIO_PIPELINE_LIMIT,
+  STUDIO_PIPELINE_RECENT_RUNS,
+} from "./limits.js";
 import type { CliParameterDescriptor } from "../../cli/cli.js";
 import type { PipelinePlan, PipelineError, PipelineRunControls } from "../../core/pipeline.js";
 import {
@@ -32,14 +37,6 @@ import {
   type InferWireSchema,
   type WireSchema,
 } from "../../tracing/wire-schema.js";
-
-export const STUDIO_HISTORY_PAGE_SIZE = 50;
-/** Recent run outcomes kept per pipeline for the navigation rail. */
-export const STUDIO_PIPELINE_RECENT_RUNS = 10;
-/** Pipelines summarized in one snapshot, most recently active first. */
-export const STUDIO_PIPELINE_LIMIT = 1_000;
-/** Direct child runs returned for one parent step. Matches the graph's drawn cap. */
-export const STUDIO_CHILD_PAGE_SIZE = 16;
 
 const text = wireString({ allowEmpty: true });
 const id = wireString();

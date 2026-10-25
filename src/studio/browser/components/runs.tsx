@@ -1,9 +1,11 @@
-import { STUDIO_HISTORY_PAGE_SIZE, type StudioRunDetail } from "../../shared/schema.js";
+import { childStepTotal } from "../graph/dependencies.js";
+import { STUDIO_HISTORY_PAGE_SIZE } from "../../shared/limits.js";
+import type { StudioRunDetail } from "../../shared/schema.js";
 import type { StoredRunSummary } from "../../../run-store/run-history.js";
 import { Status, StepRow, duration, shortId } from "./steps.js";
 import { RunGraph } from "../graph/graph.js";
 import { ErrorDiagnostics, RunLogs } from "./debugging.js";
-import { childStepTotal, Drawer, StepInspector } from "../graph/inspector.js";
+import { Drawer, StepInspector } from "../graph/inspector.js";
 import { useEffect, useState } from "preact/hooks";
 import type { StoredPipelineRun } from "../../../run-store/run-store.js";
 import type { StudioApi } from "../transport.js";

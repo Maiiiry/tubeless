@@ -20,11 +20,13 @@ import {
   STUDIO_HISTORY_PAGE_SIZE,
   STUDIO_PIPELINE_LIMIT,
   STUDIO_PIPELINE_RECENT_RUNS,
-  type StudioPipelineSummary,
-  type StudioSnapshot,
-  type StudioRunDetail,
-  type StudioChildRuns,
-  type StudioDefinitionRuns,
+} from "../shared/limits.js";
+import type {
+  StudioPipelineSummary,
+  StudioSnapshot,
+  StudioRunDetail,
+  StudioChildRuns,
+  StudioDefinitionRuns,
 } from "../shared/schema.js";
 
 export interface PipelineRunStudioHistoryMaintenance {

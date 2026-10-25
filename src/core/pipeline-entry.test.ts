@@ -57,6 +57,27 @@ function moduleName(file: string): string {
 }
 
 describe("module runtime boundaries", () => {
+  it("keeps graph scene construction independent of UI, transport and server modules", () => {
+    const allowed = new Set([
+      "studio/browser/graph/scene.js",
+      "studio/browser/graph/dependencies.js",
+      "studio/browser/graph/layout.js",
+      "studio/shared/limits.js",
+    ]);
+    const pending = [resolve(dist, "studio/browser/graph/scene.js")];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (visited.has(file)) continue;
+      visited.add(file);
+      const name = relative(dist, file).split(sep).join("/");
+      expect(allowed.has(name), `Graph scene construction reaches ${name}`).toBe(true);
+      expect(externalSpecifiers(file), `${name} imports an external runtime`).toEqual([]);
+      pending.push(...dependencies(file));
+    }
+    expect(visited.size).toBe(allowed.size);
+  });
+
   it("keeps provider and MCP adapters out of the generic agent import graph", () => {
     const pending = [resolve(dist, "agent/agent.js")];
     const visited = new Set<string>();
@@ -141,6 +162,7 @@ describe("module runtime boundaries", () => {
       "run-store/run-store-schema.js",
       "studio/server/api.js",
       "studio/server/children.js",
+      "studio/shared/limits.js",
       "studio/server/http.js",
       "studio/shared/protocol.js",
       "studio/server/state.js",

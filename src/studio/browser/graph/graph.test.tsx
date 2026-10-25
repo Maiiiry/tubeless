@@ -1,46 +1,15 @@
 import { renderToString } from "preact-render-to-string";
 import { describe, expect, it } from "vitest";
-import { createSteps, definePipeline, RUN_MODEL_VERSION } from "../../../core/pipeline.js";
+import { createSteps, definePipeline } from "../../../core/pipeline.js";
 import { createRunHistoryIndex, summarizeRun } from "../../../run-store/run-history.js";
 import {
   projectPipelineRun,
   type StoredPipelineEvent,
   type StoredPipelineRun,
-  type StoredPipelineStep,
 } from "../../../run-store/run-store.js";
 import { pageDirectChildren } from "../../server/children.js";
+import { run, step } from "./graph.test-support.js";
 import { expandedRunWatchKey, expandedRunsToLoad, RunGraph } from "./graph.js";
-
-function run(overrides: Partial<StoredPipelineRun> = {}): StoredPipelineRun {
-  return {
-    dryRun: false,
-    eventCount: 1,
-    logCount: 0,
-    logs: [],
-    pipelineId: "parent",
-    runId: "root",
-    startedAtMs: 1_000,
-    status: "running",
-    steps: [],
-    version: RUN_MODEL_VERSION,
-    ...overrides,
-  };
-}
-
-function step(
-  id: string,
-  status: StoredPipelineStep["status"],
-  overrides: Partial<StoredPipelineStep> = {}
-): StoredPipelineStep {
-  return {
-    id,
-    status,
-    dependencies: [],
-    optionalDependencies: [],
-    skipAfterFailureOf: [],
-    ...overrides,
-  };
-}
 
 /** Render the graph for `root` with its direct children attributed by the history index. */
 function graph(root: StoredPipelineRun, children: readonly StoredPipelineRun[] = []) {

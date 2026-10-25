@@ -3,38 +3,15 @@ import { useEffect } from "preact/hooks";
 import type { StoredRunSummary } from "../../../run-store/run-history.js";
 import type { StoredPipelineRun, StoredPipelineStep } from "../../../run-store/run-store.js";
 import { ErrorDiagnostics, LogLines } from "../components/debugging.js";
-import type { StudioChildStep } from "../../shared/schema.js";
 import { duration, Status, StepRow } from "../components/steps.js";
 
-export type EdgeKind = "input" | "optional" | "gate";
+import { incomingEdges, type EdgeKind } from "./dependencies.js";
 
 export const EDGE_KIND_LABEL: Record<EdgeKind, string> = {
   input: "Required input",
   optional: "Optional input",
   gate: "Failure gate",
 };
-
-/** Group a step's planned dependencies by source, in required, optional, gate order. */
-export function incomingEdges(step: StoredPipelineStep): Map<string, EdgeKind[]> {
-  const edges = new Map<string, EdgeKind[]>();
-  const add = (ids: readonly string[] | undefined, kind: EdgeKind) => {
-    for (const id of ids ?? []) edges.set(id, [...(edges.get(id) ?? []), kind]);
-  };
-  add(step.dependencies, "input");
-  add(step.optionalDependencies, "optional");
-  add(step.skipAfterFailureOf, "gate");
-  return edges;
-}
-
-/** Child runs a step started, bounded by the recorded per-step total. */
-export function childStepTotal(
-  childSteps: readonly StudioChildStep[],
-  stepId: string,
-  fallback: number
-): number {
-  const match = childSteps.find((entry) => entry.stepId === stepId);
-  return match ? Math.max(match.count, fallback) : fallback;
-}
 
 /** Elapsed time from the run's start, for step timing facts. */
 export const runOffset = (run: StoredPipelineRun, ms: number | undefined) =>

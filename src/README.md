@@ -260,9 +260,15 @@ and interactive reporter orchestration.
   value serialization and modal). `studio/browser/components/common.tsx` holds small shared pieces.
 - `studio/browser/components/steps.tsx` owns step presentation shared by the timeline and
   graph. `studio/browser/graph/layout.ts` is a pure layered DAG layout;
-  `studio/browser/graph/graph.tsx` builds the run graph scene from planned step
-  dependencies and attributed child runs, loads expanded nested runs through the
-  Studio API, and owns the inspector.
+  `studio/browser/graph/scene.ts` builds nested geometry and inspection indexes
+  from recorded runs, owning its mutable working maps and returning read-only scene
+  collections. It returns automatic expansion state without mutating its input.
+  `graph/dependencies.ts` owns dependency kinds, edge states and per-step child totals
+  shared by the scene, inspector and run views. `graph/graph.tsx` renders the scene,
+  owns selection and loads expanded runs through the Studio API. Scene construction
+  loads neither UI components nor transport or server code; the emitted runtime graph
+  test enforces this boundary. Shared history limits live in `studio/shared/limits.ts`
+  so geometry and pagination do not need to load protocol validators.
 - `run-store/run-store-schema.ts` validates projected storage records;
   `studio/shared/schema.ts` defines the browser protocol. Both reuse pure
   trace schemas. Decode at the transport boundary instead of promoting partially

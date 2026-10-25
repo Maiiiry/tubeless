@@ -1,4 +1,4 @@
-import { STUDIO_HISTORY_PAGE_SIZE } from "../../shared/schema.js";
+import { STUDIO_HISTORY_PAGE_SIZE } from "../../shared/limits.js";
 import type { StoredDefinitionSummary } from "../../../run-store/run-history.js";
 import type { StudioApi, StudioDefinitionRuns } from "../transport.js";
 import { MetadataDetails, MetadataExplorer } from "./metadata.js";

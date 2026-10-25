@@ -1,49 +1,39 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { PipelineStepProgressDetail } from "../../../core/pipeline.js";
 import type { StoredRunSummary } from "../../../run-store/run-history.js";
 import type { StoredPipelineRun, StoredPipelineStep } from "../../../run-store/run-store.js";
 import { StepArtifacts } from "../components/artifacts.js";
-import { layoutDag } from "./layout.js";
 import { preferredScrollBehavior } from "../components/common.js";
 import type { StudioApi } from "../transport.js";
 import { DEFAULT_DETAIL_RETRY_MS } from "../data-controller.js";
-import {
-  STUDIO_CHILD_PAGE_SIZE,
-  type StudioChildStep,
-  type StudioRunDetail,
-} from "../../shared/schema.js";
+import type { StudioRunDetail } from "../../shared/schema.js";
 import { duration, shortId, Status } from "../components/steps.js";
+import { Drawer, EDGE_KIND_LABEL, Facts, runOffset, StepInspector } from "./inspector.js";
+
 import {
   childStepTotal,
-  Drawer,
-  EDGE_KIND_LABEL,
-  Facts,
+  edgeState,
   incomingEdges,
-  runOffset,
-  StepInspector,
   type EdgeKind,
-} from "./inspector.js";
+  type EdgeState,
+} from "./dependencies.js";
+import {
+  buildGraphScene,
+  CENTER_Y,
+  RADIUS,
+  LABEL_Y,
+  FRAME_PADDING,
+  FRAME_HEADER,
+  type RunLoad,
+  type RunScene,
+  type ExpansionScene,
+  type GraphScene,
+} from "./scene.js";
 
-const SLOT_WIDTH = 124;
-const NODE_HEIGHT = 64;
-const CENTER_Y = 20;
-const RADIUS = 15;
-const LABEL_Y = 50;
 const LABEL_CHARS = 18;
-const COLUMN_GAP = 14;
-const ROW_GAP = 36;
-const FRAME_PADDING = 12;
-const FRAME_HEADER = 26;
-const MORE_HEIGHT = 18;
-const ITEM_COLUMNS = 4;
-const ITEM_LIMIT = STUDIO_CHILD_PAGE_SIZE;
-const MAX_DEPTH = 6;
 const MARGIN = 18;
 /** Approximate advance of the 9px monospace frame header font. */
 const HEADER_CHAR_WIDTH = 5.5;
-
-type EdgeState = "active" | "blocked" | "candidate" | "settled" | "tripped" | "unused" | "used";
 
 const TERMINAL: Record<string, true> = { cancelled: true, completed: true, failed: true };
 
@@ -54,128 +44,14 @@ const ICON_PATH: Record<string, string> = {
   skipped: "M-5 5 5-5",
 };
 
-/** Expanded child pipeline detail; `missing` when the store has no record of the run. */
-type RunLoad = StudioRunDetail | "missing";
-
 type GraphSelection =
   | { kind: "step"; runId: string; stepId: string }
   | { kind: "edge"; runId: string; from: string; to: string }
   | { kind: "run"; runId: string }
   | { kind: "item"; runId: string; stepId: string; itemId: string };
 
-interface EdgeScene {
-  from: string;
-  to: string;
-  kinds: EdgeKind[];
-  state: EdgeState;
-  path: string;
-  head: string;
-}
-
-interface StepScene {
-  key: string;
-  step: StoredPipelineStep;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  itemCount: number;
-  expanded: boolean;
-  expansion?: ExpansionScene;
-}
-
-interface RunScene {
-  run: StoredPipelineRun;
-  width: number;
-  height: number;
-  steps: StepScene[];
-  edges: EdgeScene[];
-}
-
-interface PlacedItem {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-type ItemScene = PlacedItem &
-  (
-    | {
-        kind: "run";
-        summary: StoredRunSummary;
-        label: string;
-        /** Whether the graph can draw this run's steps inline, rather than only open it. */
-        expandable: boolean;
-        expanded: boolean;
-        graph?: RunScene;
-        unavailable: boolean;
-      }
-    | { kind: "item"; detail: PipelineStepProgressDetail; label: string }
-  );
-
-interface ExpansionScene {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  items: ItemScene[];
-  links: string[];
-  /** Explains items the expansion does not draw, and where to find them. */
-  more?: string;
-}
-
-interface SceneContext {
-  readonly loads: ReadonlyMap<string, RunLoad>;
-  readonly toggles: ReadonlyMap<string, boolean>;
-  /** Keys auto-expanded while running; they stay open until the user collapses them. */
-  readonly opened: Set<string>;
-  readonly canLoad: boolean;
-  /** Nested runs the graph can expand; deeper runs only open on their own page. */
-  readonly expandable: Set<string>;
-  /** Expanded child runs whose detail must be loaded and refreshed. */
-  readonly wanted: Set<string>;
-  readonly runs: Map<string, StoredPipelineRun>;
-  readonly children: Map<string, readonly StoredRunSummary[]>;
-  /** Direct-child totals per parent step. The children map holds only the drawn page. */
-  readonly childSteps: Map<string, readonly StudioChildStep[]>;
-  readonly summaries: Map<string, StoredRunSummary>;
-}
-
-/** Open running work automatically and keep it open after it settles. */
-function autoExpand(ctx: SceneContext, key: string, running: boolean): boolean {
-  if (running) ctx.opened.add(key);
-  return ctx.opened.has(key);
-}
-
-/** Completed steps and policy skips publish an output that consumers receive. */
-function producedOutput(step: StoredPipelineStep): boolean {
-  return step.status === "completed" || step.skipReason === "policy";
-}
-
-/**
- * Visual state of one dependency edge from all of its kinds and its endpoint steps.
- * Gates trip on a failed or cancelled source, matching the engine's step disposition.
- * A step's own skip policy runs after its inputs are built, so a policy skip still
- * received them; other skips happen before inputs exist.
- */
-function edgeState(
-  kinds: readonly EdgeKind[],
-  source: StoredPipelineStep,
-  target: StoredPipelineStep
-): EdgeState {
-  const gate = kinds.includes("gate");
-  const failed = source.status === "failed" || source.status === "cancelled";
-  if (gate && failed) return "tripped";
-  if (target.status === "planned") return "candidate";
-  if (kinds.length === 1 && gate) return "settled";
-  if (!producedOutput(source)) return failed ? "blocked" : "unused";
-  if (target.status === "running") return "active";
-  return target.status === "skipped" && target.skipReason !== "policy" ? "unused" : "used";
-}
-
 /** Draw an edge as a gate once it trips, even when the source is also an input. */
-function edgeLook(edge: Pick<EdgeScene, "kinds" | "state">): EdgeKind {
+function edgeLook(edge: Pick<RunScene["edges"][number], "kinds" | "state">): EdgeKind {
   return edge.state === "tripped" ? "gate" : edge.kinds[0]!;
 }
 
@@ -200,258 +76,8 @@ function nodeStatus(status: string | undefined): string {
   return status === undefined || status === "pending" ? "planned" : status;
 }
 
-function runLabel(summary: StoredRunSummary, tools: ReadonlyMap<string, string>): string {
-  const { itemKey, iteration } = summary.origin ?? {};
-  return (
-    (itemKey !== undefined ? tools.get(itemKey) : undefined) ??
-    (iteration !== undefined ? `iteration ${iteration}` : (itemKey ?? summary.pipelineId))
-  );
-}
-
 function truncate(label: string, chars = LABEL_CHARS): string {
   return label.length > chars ? label.slice(0, Math.max(1, chars - 1)) + "…" : label;
-}
-
-/** Top of the circle, where incoming connections end. */
-function itemTop(item: PlacedItem & { kind: string; graph?: RunScene }): number {
-  return item.y + (item.kind === "run" && item.graph ? 0 : CENTER_Y - RADIUS - 3);
-}
-
-function buildExpansion(
-  run: StoredPipelineRun,
-  step: StoredPipelineStep,
-  childRuns: readonly StoredRunSummary[],
-  details: readonly PipelineStepProgressDetail[],
-  /** Progress rows the trace dropped; their depth is unknown, so they are not items. */
-  unrecorded: number,
-  totalRuns: number,
-  ctx: SceneContext,
-  depth: number
-): ExpansionScene {
-  const tools = new Map(run.agentTurn?.calls.map((call) => [call.callId, call.tool]) ?? []);
-  const ordered = [...childRuns].sort(
-    (left, right) =>
-      (left.origin?.iteration ?? 0) - (right.origin?.iteration ?? 0) ||
-      left.startedAtMs - right.startedAtMs
-  );
-  const runningRuns = ordered.filter((child) => child.subtreeIsRunning).length;
-  const sized: ItemScene[] = [];
-  for (const summary of ordered.slice(0, ITEM_LIMIT)) {
-    const label = runLabel(summary, tools);
-    const expandable = ctx.canLoad && depth + 1 < MAX_DEPTH;
-    if (expandable) ctx.expandable.add(summary.runId);
-    const expanded =
-      expandable &&
-      (ctx.toggles.get(summary.runId) ??
-        autoExpand(ctx, summary.runId, summary.subtreeIsRunning && runningRuns === 1));
-    const load = expanded ? ctx.loads.get(summary.runId) : undefined;
-    if (expanded) ctx.wanted.add(summary.runId);
-    const graph =
-      load && load !== "missing"
-        ? buildRunScene(load.run, load.children, ctx, depth + 1, load.childSteps)
-        : undefined;
-    sized.push({
-      kind: "run",
-      summary,
-      label,
-      expandable,
-      expanded,
-      graph,
-      unavailable: load === "missing",
-      x: 0,
-      y: 0,
-      width: graph ? Math.max(SLOT_WIDTH, graph.width + FRAME_PADDING * 2) : SLOT_WIDTH,
-      height: graph ? FRAME_HEADER + graph.height + FRAME_PADDING : NODE_HEIGHT,
-    });
-  }
-  const drawnRuns = sized.length;
-  for (const detail of details.slice(0, Math.max(0, ITEM_LIMIT - sized.length))) {
-    sized.push({
-      kind: "item",
-      detail,
-      label: detail.name ?? tools.get(detail.id) ?? detail.id,
-      x: 0,
-      y: 0,
-      width: SLOT_WIDTH,
-      height: NODE_HEIGHT,
-    });
-  }
-  const hiddenRuns = totalRuns - drawnRuns;
-  const hiddenRows = details.length - (sized.length - drawnRuns);
-  const more = [
-    hiddenRuns > 0 && `+${hiddenRuns} more in the run list`,
-    hiddenRows > 0 && `+${hiddenRows} more in the timeline`,
-    unrecorded > 0 && `${unrecorded} progress rows not recorded`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const columns = step.nestedPipeline?.mode === "iterate" ? 1 : ITEM_COLUMNS;
-  const rows: ItemScene[][] = [];
-  for (let index = 0; index < sized.length; index += columns) {
-    rows.push(sized.slice(index, index + columns));
-  }
-  const rowWidth = (row: readonly ItemScene[]) =>
-    row.reduce((sum, item) => sum + item.width, 0) + (row.length - 1) * COLUMN_GAP;
-  const innerWidth = Math.max(SLOT_WIDTH, ...rows.map(rowWidth));
-  let y = FRAME_PADDING;
-  for (const row of rows) {
-    let x = FRAME_PADDING + (innerWidth - rowWidth(row)) / 2;
-    for (const item of row) {
-      item.x = x;
-      item.y = y;
-      x += item.width + COLUMN_GAP;
-    }
-    y += Math.max(...row.map((item) => item.height)) + (columns === 1 ? ROW_GAP / 2 : COLUMN_GAP);
-  }
-  const links =
-    columns === 1
-      ? sized.slice(1).map((item, index) => {
-          const previous = sized[index]!;
-          const x = previous.x + previous.width / 2;
-          return `M${x} ${previous.y + previous.height - 4}V${itemTop(item)}`;
-        })
-      : [];
-  const contentHeight = sized.length
-    ? y - (columns === 1 ? ROW_GAP / 2 : COLUMN_GAP)
-    : FRAME_PADDING;
-  const width = innerWidth + FRAME_PADDING * 2;
-  return {
-    x: 0,
-    y: NODE_HEIGHT,
-    width,
-    height: contentHeight + (more ? MORE_HEIGHT : 0) + FRAME_PADDING,
-    items: sized,
-    links,
-    ...(more ? { more } : {}),
-  };
-}
-
-function buildRunScene(
-  run: StoredPipelineRun,
-  children: readonly StoredRunSummary[],
-  ctx: SceneContext,
-  depth: number,
-  childSteps: readonly StudioChildStep[] = []
-): RunScene {
-  ctx.runs.set(run.runId, run);
-  ctx.children.set(run.runId, children);
-  ctx.childSteps.set(run.runId, childSteps);
-  for (const child of children) ctx.summaries.set(child.runId, child);
-  const stepById = new Map(run.steps.map((step) => [step.id, step]));
-  const steps: StepScene[] = run.steps.map((step) => {
-    const key = `${run.runId}/${step.id}`;
-    const childRuns = children.filter((child) => child.origin?.stepId === step.id);
-    const runItems = new Set(childRuns.map((child) => child.origin?.itemKey));
-    // Single and iterate steps report their child runs' progress as details; the runs show it.
-    const mode = step.nestedPipeline?.mode;
-    const mirrored = (mode === "single" || mode === "iterate") && childRuns.length > 0;
-    const details = mirrored
-      ? []
-      : (step.progress?.details ?? []).filter(
-          (detail) => !detail.depth && !runItems.has(detail.id)
-        );
-    const recorded = step.progress?.details ?? [];
-    // The trace keeps a prefix of progress rows. Nested steps record every child as a run,
-    // so only other steps lose information when rows are dropped. Dropped rows may be
-    // nested at any depth, so they are reported, never counted as items.
-    const unrecorded = step.nestedPipeline
-      ? 0
-      : Math.max(0, (step.progress?.detailCount ?? recorded.length) - recorded.length);
-    const totalRuns = childStepTotal(childSteps, step.id, childRuns.length);
-    const itemCount = totalRuns + details.length;
-    const expanded =
-      itemCount > 0 &&
-      depth < MAX_DEPTH &&
-      (ctx.toggles.get(key) ??
-        autoExpand(ctx, key, step.status === "running" && childRuns.length > 0));
-    const expansion = expanded
-      ? buildExpansion(run, step, childRuns, details, unrecorded, totalRuns, ctx, depth)
-      : undefined;
-    const width = Math.max(SLOT_WIDTH, expansion?.width ?? 0);
-    if (expansion) expansion.x = (width - expansion.width) / 2;
-    return {
-      key,
-      step,
-      x: 0,
-      y: 0,
-      width,
-      height: expansion ? NODE_HEIGHT + expansion.height + 6 : NODE_HEIGHT,
-      itemCount,
-      expanded,
-      expansion,
-    };
-  });
-  const incoming = new Map(run.steps.map((step) => [step.id, incomingEdges(step)]));
-  const layout = layoutDag(
-    steps.map(({ key, width, height }) => ({ id: key, width, height })),
-    run.steps.flatMap((step) =>
-      [...incoming.get(step.id)!.keys()].map((from) => ({
-        from: `${run.runId}/${from}`,
-        to: `${run.runId}/${step.id}`,
-      }))
-    ),
-    { columnGap: COLUMN_GAP, rowGap: ROW_GAP }
-  );
-  const byId = new Map<string, StepScene>();
-  const layerTop: number[] = [];
-  const layerOf = new Map<string, number>();
-  for (const scene of steps) {
-    const placed = layout.nodes.get(scene.key)!;
-    scene.x = placed.x;
-    scene.y = placed.y;
-    byId.set(scene.step.id, scene);
-    layerOf.set(scene.step.id, placed.layer);
-    layerTop[placed.layer] = placed.y;
-  }
-  let width = layout.width;
-  let lanes = 0;
-  const edges: EdgeScene[] = [];
-  for (const target of steps) {
-    for (const [from, kinds] of incoming.get(target.step.id)!) {
-      const source = byId.get(from);
-      if (!source) continue;
-      const sx = source.x + source.width / 2;
-      const sy = source.y + (source.expansion ? source.height : LABEL_Y + 8);
-      const tx = target.x + target.width / 2;
-      const ty = target.y + CENTER_Y - RADIUS - 3;
-      const first = layerOf.get(from)! + 1;
-      const last = layerOf.get(target.step.id)!;
-      const between = steps.filter((scene) => {
-        const layer = layerOf.get(scene.step.id)!;
-        return layer >= first && layer < last;
-      });
-      const blocked = between.some(
-        (scene) =>
-          scene.x < Math.max(sx, tx) + COLUMN_GAP &&
-          scene.x + scene.width > Math.min(sx, tx) - COLUMN_GAP
-      );
-      let path: string;
-      if (blocked) {
-        // Skip-layer edges detour right of the layers they cross instead of through them.
-        const lane =
-          Math.max(...between.map((scene) => scene.x + scene.width)) + COLUMN_GAP / 2 + lanes * 6;
-        lanes += 1;
-        width = Math.max(width, lane + COLUMN_GAP / 2);
-        const below = layerTop[first]! - ROW_GAP / 2;
-        const above = layerTop[last]! - ROW_GAP / 2;
-        path =
-          `M${sx} ${sy}C${sx} ${below} ${lane} ${below} ${lane} ${layerTop[first]}` +
-          `V${layerTop[last]! - ROW_GAP}C${lane} ${above} ${tx} ${above} ${tx} ${ty - 4}`;
-      } else {
-        const middle = (sy + ty) / 2;
-        path = `M${sx} ${sy}C${sx} ${middle} ${tx} ${middle} ${tx} ${ty - 4}`;
-      }
-      edges.push({
-        from,
-        to: target.step.id,
-        kinds,
-        state: edgeState(kinds, stepById.get(from)!, target.step),
-        path,
-        head: `M${tx - 4} ${ty - 7}L${tx} ${ty}L${tx + 4} ${ty - 7}Z`,
-      });
-    }
-  }
-  return { run, width, height: layout.height, steps, edges };
 }
 
 interface GraphUi {
@@ -730,7 +356,7 @@ function inspectorContent({
   onOpenRun,
 }: {
   selection: GraphSelection | null;
-  ctx: SceneContext;
+  ctx: GraphScene;
   ui: GraphUi;
   onOpenRun(runId: string, pipelineId?: string): void;
 }) {
@@ -974,7 +600,7 @@ export function RunGraph({
 }: RunGraphProps) {
   const runId = detail.run.runId;
   const [toggles, setToggles] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const opened = useRef(new Set<string>());
+  const opened = useRef<ReadonlySet<string>>(new Set());
   const [loads, setLoads] = useState<ReadonlyMap<string, RunLoad>>(new Map());
   const [selection, setSelection] = useState<GraphSelection | null>(() =>
     selectedStepId ? { kind: "step", runId, stepId: selectedStepId } : null
@@ -1001,19 +627,14 @@ export function RunGraph({
     if (focusRequest)
       drawer.current?.scrollIntoView({ block: "nearest", behavior: preferredScrollBehavior() });
   }, [focusRequest]);
-  const ctx: SceneContext = {
+  const ctx = buildGraphScene(detail, {
     loads,
     toggles,
     opened: opened.current,
     canLoad: api !== undefined,
-    expandable: new Set(),
-    wanted: new Set(),
-    runs: new Map(),
-    children: new Map(),
-    childSteps: new Map(),
-    summaries: new Map(),
-  };
-  const scene = buildRunScene(detail.run, detail.children, ctx, 0, detail.childSteps);
+  });
+  opened.current = ctx.opened;
+  const { scene } = ctx;
   const watch = [...ctx.wanted]
     .sort()
     .map((runId) => expandedRunWatchKey(ctx.summaries.get(runId)!))

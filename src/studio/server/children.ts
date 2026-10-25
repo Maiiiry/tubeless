@@ -1,5 +1,6 @@
 import type { StoredRunSummary } from "../../run-store/run-history.js";
-import { STUDIO_CHILD_PAGE_SIZE, type StudioChildStep } from "../shared/schema.js";
+import { STUDIO_CHILD_PAGE_SIZE } from "../shared/limits.js";
+import type { StudioChildStep } from "../shared/schema.js";
 
 const UNATTRIBUTED = "";
 

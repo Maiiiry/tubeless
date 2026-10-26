@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import {
-  defineAgent,
+  defineAgentLoop,
   defineTool,
   pipelineTool,
   type AgentCall,
@@ -30,7 +30,7 @@ const outcomesSchema = schema<readonly AgentOutcome[]>((value) => ({
 function batch(calls: readonly AgentCall[]) {
   const decide = (state: readonly AgentOutcome[], context: { turn: number }) =>
     context.turn === 1 ? { kind: "continue", calls } : { kind: "finish", result: state };
-  return defineAgent({
+  return defineAgentLoop({
     id: "default-tools",
     inputSchema: emptyInput,
     resultSchema: outcomesSchema,
@@ -55,7 +55,7 @@ describe("default agent tools", () => {
     // @ts-expect-error An overridden read uses the custom input, not the default file input.
     const invalid: AgentCall<typeof tools> = { id: "custom", tool: "read", input: { path: "x" } };
     void invalid;
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       id: "custom-default",
       inputSchema: emptyInput,
       resultSchema: numberSchema,
@@ -264,7 +264,7 @@ describe("default agent tools", () => {
     ]);
     const child = batch([{ id: "read", tool: "read", input: { path: "text" } }]);
     const parent = (maxCalls: number) =>
-      defineAgent({
+      defineAgentLoop({
         id: "parent-tools",
         inputSchema: emptyInput,
         resultSchema: outcomesSchema,

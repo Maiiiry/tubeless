@@ -1,5 +1,5 @@
 import { appendFile } from "node:fs/promises";
-import { defineModelAgent, defineTool } from "tubeless/agent";
+import { defineAgent, defineTool } from "tubeless/agent";
 import { openSqliteAgentCheckpointStore } from "tubeless/agent/node";
 import type { StandardSchemaV1 } from "tubeless";
 
@@ -13,7 +13,7 @@ const text: StandardSchemaV1<string> = {
       typeof value === "string" ? { value } : { issues: [{ message: "Expected text" }] },
   },
 };
-const agent = defineModelAgent({
+const agent = defineAgent({
   id: "process-recovery",
   implementationVersion: "1",
   projectContext: false,

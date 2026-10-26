@@ -3,6 +3,7 @@
   "entry": [
     "src/reporter/live-ticker-worker.ts",
     "src/node/worker-thread-runtime.ts",
+    "src/agent/codemode-worker.ts",
     "src/studio/browser/entry.ts",
     "src/**/*.test.tsx",
     "scripts/check-pipeline.ts",

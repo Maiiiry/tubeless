@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
-import { defineModelAgent, defineTool, pipelineTool, type AgentModelRequest } from "./agent.js";
+import { defineAgent, defineTool, pipelineTool, type AgentModelRequest } from "./agent.js";
 import { toolObject } from "./default-tool-schema.js";
 
 it.each([true, false])(
@@ -24,7 +24,7 @@ it.each([true, false])(
       const target = join(dirname(physicalCwd), "target");
       const requests: AgentModelRequest[] = [];
       const empty = toolObject({});
-      const child = defineModelAgent({
+      const child = defineAgent({
         id: "cwd-child",
         projectContext,
         model: (_request, context) => ({
@@ -60,7 +60,7 @@ it.each([true, false])(
         },
         { kind: "finish", result: { answer: "Done" } },
       ];
-      const agent = defineModelAgent({
+      const agent = defineAgent({
         id: "physical-workspace",
         projectContext,
         tools: {

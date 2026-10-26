@@ -125,7 +125,7 @@ Read the corresponding package recipe before using these features:
   callback and rejects caching and policy skips; gate dependent actions with
   ordinary steps. See `docs/concepts.md` and `examples/user-input.ts`.
 
-- `defineModelAgent({ id, model })` from `tubeless/agent` for a ready-to-run
+- `defineAgent({ id, model })` from `tubeless/agent` for a ready-to-run
   workspace agent. `openaiModel()` from `tubeless/agent/openai` supplies the optional
   Responses adapter; `anthropicModel()` from `tubeless/agent/anthropic` supplies the
   Messages adapter with the same option names (`model`, `apiKey`, `baseUrl`,
@@ -151,7 +151,13 @@ Read the corresponding package recipe before using these features:
   complete. Read `docs/agents.md`, `examples/agent-model.ts`, and
   `examples/agent-model-anthropic.ts` for
   context-loading scope, byte bounds and live-evaluation instructions. Custom
-  `defineAgent` and `decide` remain the lower-level path.
+  `defineAgentLoop` and `decide` remain the lower-level path. For typed work inside a
+  pipeline, give `defineAgent` an `inputSchema`, a `task(options)` mapper and a
+  `resultSchema`, then compose it with `fromPipeline`; see `examples/agent-extract.ts`.
+  For chat in an application, `createAgentSession(agent)` continues one conversation across
+  sequential runs; persist `session.conversation`. Typed agents default to a task-neutral prompt without AGENTS.md; put task guidance in
+  `instructions`. Restrict standard tools with `defaultTools` (e.g. `["read", "list", "search"]`) for
+  autonomous agents; all six, including `bash`, are granted by default.
 
 - `connectMcpServers` from `tubeless/agent/mcp` to attach MCP server tools
   (`<server>__<tool>`) to any agent via `tools: mcp.tools`. Connect inside the
@@ -162,7 +168,15 @@ Read the corresponding package recipe before using these features:
   because their explicit nulls cannot also represent omission.
   Expanded schemas are bounded; conflicting `anyOf` decoding is rejected before dispatch.
 
-- `defineAgent`, `defineTool`, and `pipelineTool` from `tubeless/agent` for bounded in-process
+- `codemode: true` on `defineAgent` or `defineAgentLoop` (CLI: `tubeless agent --codemode`),
+  a setup-level permission, to offer one
+  `codemode` tool: a JavaScript async function body calling every registered tool as
+  `await tools.<name>(input)` and returning JSON. Prefer it for large MCP inventories or
+  many chained calls. Type decisions as `AgentDecision<Registry, Result, true>`; outcomes carry
+  `CodemodeResult`. Script calls are budgeted child runs; read `docs/agents.md#code-mode`
+  and `examples/agent-codemode.ts`. Isolation is best-effort and Node/Bun only.
+
+- `defineAgentLoop`, `defineTool`, and `pipelineTool` from `tubeless/agent` for bounded in-process
   decisions over registered handlers, pipelines, and subagents. Read `docs/agents.md` and
   `examples/agent.ts`; use `examples/agent-openai.ts` for a real Responses API
   callback with native fetch. Keep provider calls application-owned, validate raw

@@ -5,7 +5,7 @@ import { createPipelineTestRuntime } from "../testing/testing.js";
 import { decodeStoredTraceEvent } from "../run-store/run-store-event-decoder.js";
 import { projectPipelineRunStore, type StoredPipelineEvent } from "../run-store/run-store.js";
 import {
-  defineAgent,
+  defineAgentLoop,
   defineTool,
   pipelineTool,
   ToolError,
@@ -28,7 +28,7 @@ function coordinator(
           calls: calls.map((input, index) => ({ id: String(index), tool: "work", input })),
         }
       : { kind: "finish", result: state };
-  return defineAgent({
+  return defineAgentLoop({
     id,
     inputSchema: emptyInput,
     resultSchema: numberSchema,
@@ -52,7 +52,7 @@ function deferred() {
 describe("agent subtrees", () => {
   it("runs two children with private state and registries, recording their actual ancestry", async () => {
     const states: number[] = [];
-    const child = defineAgent({
+    const child = defineAgentLoop({
       id: "child",
       inputSchema: input,
       resultSchema: numberSchema,
@@ -361,7 +361,7 @@ describe("agent subtrees", () => {
   it("limits decision callbacks across siblings without holding waiting parent permits", async () => {
     let active = 0;
     let peak = 0;
-    const child = defineAgent({
+    const child = defineAgentLoop({
       id: "child",
       inputSchema: emptyInput,
       resultSchema: numberSchema,
@@ -469,7 +469,7 @@ describe("agent subtrees", () => {
     const decide = vi.fn(() => {
       throw new ToolError("MODEL", "Failure");
     });
-    const child = defineAgent({
+    const child = defineAgentLoop({
       id: "child",
       inputSchema: emptyInput,
       resultSchema: numberSchema,

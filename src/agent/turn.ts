@@ -1,4 +1,3 @@
-import { setExecutionScope } from "../core/execution-scope.js";
 import { STEP_ORCHESTRATION } from "../core/pipeline-step-metadata.js";
 import { agentScope } from "./execution-scope.js";
 import { expectedToolFailure } from "./tool-failure.js";
@@ -10,25 +9,25 @@ import {
   PipelineExecutionError,
   isPipelineCancellation,
 } from "../core/pipeline-execution-error.js";
-import type { PipelineStepContext, StandardSchemaV1 } from "../core/pipeline-types.js";
-import type { PreparedOptions } from "../core/prepared-options.js";
+import type { StandardSchemaV1 } from "../core/pipeline-types.js";
 import { validateStandardSchema } from "../core/pipeline-validation.js";
 import { throwIfAborted } from "../utilities/abort.js";
 import { runConcurrentPartial } from "../utilities/batch.js";
 import { ownState, limit } from "./agent-state.js";
-import { decisionEnvelope, prepareCalls, type PreparedCall } from "./decision.js";
+import { callInvocation, decisionEnvelope, prepareCalls, type PreparedCall } from "./decision.js";
 import { restoreCalls, saveCalls } from "./checkpoint-calls.js";
 import type {
   AgentDecisionContext,
   AgentLimits,
   AgentOutcome,
   AgentState,
+  DefaultAgentToolName,
   Output,
   Tools,
 } from "./agent-types.js";
 import type { CallOutcome } from "./checkpoint-format.js";
 import type { RuntimeAgentDefinition } from "./compile-agent.js";
-import type { CompiledTool, ToolInvocation } from "./tools.js";
+import type { CompiledTool } from "./tools.js";
 import type { ToolActivity } from "./tool-progress.js";
 
 export interface TurnState<State> {
@@ -38,30 +37,15 @@ export interface TurnState<State> {
   calls: number;
 }
 
-function childInvocation(
-  call: PreparedCall,
-  context: PipelineStepContext<object>,
-  attributes: ToolInvocation["attributes"],
-  execution: ToolInvocation["execution"],
-  onActivity: ToolInvocation["onActivity"]
-): { options: object; context: PipelineStepContext<object>; preparedOptions?: PreparedOptions } {
-  if (call.kind === "handler")
-    return {
-      options: { input: call.input, attributes, execution, onActivity } satisfies ToolInvocation,
-      context,
-    };
-  const childContext = { ...context };
-  setExecutionScope(childContext, call.scope);
-  return { options: call.options, context: childContext, preparedOptions: call.preparedOptions };
-}
-
 export function createAgentTurn<
   Options extends StandardSchemaV1<object, object>,
   Result extends StandardSchemaV1,
   State,
   Registry extends Tools,
+  Codemode extends boolean,
+  Defaults extends DefaultAgentToolName,
 >(
-  definition: RuntimeAgentDefinition<string, Options, Result, State, Registry>,
+  definition: RuntimeAgentDefinition<string, Options, Result, State, Registry, Codemode, Defaults>,
   registry: ReadonlyMap<string, CompiledTool>,
   limits: Required<AgentLimits>,
   descriptors: Pick<AgentDecisionContext<Output<Options>>, "capabilities" | "resultJsonSchema">
@@ -207,15 +191,14 @@ export function createAgentTurn<
               else progress.fail(call.id, new Error(outcome.error.message), false);
               return outcome;
             }
-            const invocation = childInvocation(
-              call,
-              context,
+            const invocation = callInvocation(call, context, {
+              turn: execution.turn,
               attributes,
-              scope.identity(execution.turn, call.id),
-              (started) => {
+              execution: scope.identity(execution.turn, call.id),
+              onActivity: (started) => {
                 activity = started;
-              }
-            );
+              },
+            });
             const result = await invokeChildPipeline(
               call.tool.pipeline,
               invocation.options,
@@ -288,7 +271,7 @@ export function createAgentTurn<
       const { execution } = context.options;
       throwIfAborted(context.signal, "Agent reduction");
       // SAFETY: registered tools validated outcomes before persistence; recovery matched their definitions.
-      const typedOutcomes = outcomes as readonly AgentOutcome<Registry>[];
+      const typedOutcomes = outcomes as readonly AgentOutcome<Registry, Codemode, Defaults>[];
       const state = definition.reduce
         ? ownState(definition.reduce(decision.state, typedOutcomes))
         : decision.state;

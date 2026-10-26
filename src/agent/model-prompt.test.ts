@@ -208,3 +208,41 @@ it("counts application headers and separators within the UTF-8 prompt budget", a
     modelInstructions("/remote/project", instructions + "x", true, undefined, environment)
   ).rejects.toThrow("Agent instructions exceed 32768 UTF-8 bytes");
 });
+
+it("selects the workspace prompt with project context and a task-neutral prompt without", async () => {
+  const environment = remote();
+  const workspace = await modelInstructions(
+    "/remote/project",
+    undefined,
+    true,
+    undefined,
+    environment
+  );
+  expect(workspace).toContain("coding, writing, and computer use agent");
+  expect(workspace).toContain("REMOTE GUIDANCE");
+  const task = await modelInstructions(
+    "/remote/project",
+    "Classify files.",
+    false,
+    undefined,
+    environment
+  );
+  expect(task).toContain("autonomous agent completing one task");
+  expect(task).not.toContain("AGENTS.md");
+  expect(task).not.toContain("REMOTE GUIDANCE");
+  expect(task).toContain("Working directory: /remote/project");
+  expect(task.endsWith("Application instructions:\nClassify files.")).toBe(true);
+  const codemode = await modelInstructions(
+    "/remote/project",
+    undefined,
+    false,
+    undefined,
+    environment,
+    true
+  );
+  expect(codemode).toContain("Code mode: your only tool is codemode.");
+  expect(codemode).not.toContain("AGENTS.md");
+  expect(
+    await modelInstructions("/remote/project", undefined, true, undefined, environment, true)
+  ).toContain("read applicable AGENTS.md files in a script");
+});

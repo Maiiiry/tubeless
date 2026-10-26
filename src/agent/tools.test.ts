@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defineAgent, defineTool, type AgentTool } from "./agent.js";
+import { defineAgentLoop, defineTool, type AgentTool } from "./agent.js";
 import { emptyInput, numberSchema } from "./agent.test-support.js";
 
 describe("agent capability definitions", () => {
@@ -23,7 +23,7 @@ describe("agent capability definitions", () => {
       })
     ).not.toThrow();
     expect(() =>
-      defineAgent({
+      defineAgentLoop({
         id: "missing-result-metadata",
         inputSchema: emptyInput,
         resultSchema: missingMetadata,
@@ -63,7 +63,7 @@ describe("agent capability definitions", () => {
       decide: () => ({ kind: "finish", result: 1 }),
     };
     expect(() =>
-      defineAgent({ ...base, tools: { fake: {} as AgentTool<unknown, unknown> } })
+      defineAgentLoop({ ...base, tools: { fake: {} as AgentTool<unknown, unknown> } })
     ).toThrow("defineTool");
     const tool = defineTool({
       description: "Number",
@@ -71,6 +71,8 @@ describe("agent capability definitions", () => {
       outputSchema: numberSchema,
       run: (value) => value,
     });
-    expect(() => defineAgent({ ...base, tools: { "invalid name": tool } })).toThrow("tool name");
+    expect(() => defineAgentLoop({ ...base, tools: { "invalid name": tool } })).toThrow(
+      "tool name"
+    );
   });
 });

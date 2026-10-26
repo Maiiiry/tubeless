@@ -1,9 +1,9 @@
-import { defineModelAgent, type AgentEnvironmentProvider } from "tubeless/agent";
+import { defineAgent, type AgentEnvironmentProvider } from "tubeless/agent";
 import { createNodeAgentEnvironment } from "tubeless/agent/node";
 
 /** Replace the environment to run the same agent against a remote workspace. */
 export function createEnvironmentWorkspaceAgent(environment: AgentEnvironmentProvider) {
-  return defineModelAgent({
+  return defineAgent({
     id: "environment-workspace-agent",
     name: "Environment workspace agent",
     description: "List a workspace through caller-supplied capabilities without model credentials.",

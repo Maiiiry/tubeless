@@ -2,7 +2,12 @@ import { safeTerminalText } from "../../reporter/terminal-text.js";
 import { createReporterTheme } from "../../reporter/reporter.js";
 import { AGENT_REPL_HELP, parseAgentCommand } from "./commands.js";
 import { AgentInput } from "./input.js";
-import { executeAgentPrompt, type AgentModelFactory, type AgentPromptOptions } from "./prompt.js";
+import {
+  createPromptSession,
+  executeAgentPrompt,
+  type AgentModelFactory,
+  type AgentPromptOptions,
+} from "./prompt.js";
 import { TUBELESS_WORKBENCH_EXIT_CODE, type WorkbenchCliIo } from "../workbench-shared.js";
 
 /** Own commands and session cancellation; single prompts use the same task loop. */
@@ -14,7 +19,7 @@ export async function runAgentSession(
   const session = new AbortController();
   let active: AbortController | undefined;
   let selectedModel = options.model;
-  let conversation: unknown = null;
+  const chat = createPromptSession(options);
   let exitCode: number = TUBELESS_WORKBENCH_EXIT_CODE.success;
   const interrupt = () => {
     if (active) active.abort();
@@ -59,7 +64,7 @@ export async function runAgentSession(
           continue;
         }
         if (command?.action === "clear") {
-          conversation = null;
+          chat.session.clear();
           io.stdout.write("Conversation cleared.\n");
           continue;
         }
@@ -74,16 +79,14 @@ export async function runAgentSession(
       active = new AbortController();
       input?.setRunning(true);
       try {
-        const result = await executeAgentPrompt(
+        exitCode = await executeAgentPrompt(
           task,
           { ...options, model: selectedModel },
           factory,
           io,
           AbortSignal.any([session.signal, active.signal]),
-          conversation
+          chat
         );
-        exitCode = result.exitCode;
-        conversation = result.conversation;
       } finally {
         active = undefined;
         input?.setRunning(false);

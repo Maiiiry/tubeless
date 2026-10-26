@@ -7,7 +7,7 @@ import { createPipelineTestRuntime } from "../testing/testing.js";
 import { decodeStoredTraceEvent } from "../run-store/run-store-event-decoder.js";
 import { openSqlitePipelineRunStore } from "../run-store/run-store-sqlite.js";
 import { projectPipelineRunStore, type StoredPipelineEvent } from "../run-store/run-store.js";
-import { defineAgent, defineTool, ToolError, type AgentLimits } from "./agent.js";
+import { defineAgentLoop, defineTool, ToolError, type AgentLimits } from "./agent.js";
 import { emptyInput, numberSchema, schema } from "./agent.test-support.js";
 
 function agent(
@@ -27,7 +27,7 @@ function agent(
       },
     }),
   };
-  return defineAgent({
+  return defineAgentLoop({
     id: "recorded-agent",
     inputSchema: emptyInput,
     resultSchema: numberSchema,
@@ -251,7 +251,7 @@ describe("agent definition and recorded execution", () => {
       run: (value) => value,
     });
     descriptor.type = "string";
-    const pipeline = defineAgent({
+    const pipeline = defineAgentLoop({
       id: "descriptors",
       inputSchema: emptyInput,
       resultSchema: numberSchema,

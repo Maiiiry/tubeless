@@ -1,5 +1,11 @@
-import { defineModelAgent, type AgentLimits, type AgentModel } from "../../agent/agent.js";
-import { ownState } from "../../agent/agent-state.js";
+import {
+  createAgentSession,
+  defineAgent,
+  type AgentLimits,
+  type AgentModel,
+  type AgentSession,
+  type DefaultAgentToolName,
+} from "../../agent/agent.js";
 import type { PipelineLogger } from "../../core/pipeline.js";
 import { createPipelineReporter } from "../../reporter/interactive-reporter.js";
 import { safeTerminalLog, safeTerminalText } from "../../reporter/terminal-text.js";
@@ -22,12 +28,41 @@ export interface AgentPromptOptions {
   readonly env: Readonly<NodeJS.ProcessEnv>;
   readonly instructions?: string;
   readonly limits: AgentLimits;
+  readonly defaultTools?: readonly DefaultAgentToolName[];
+  readonly codemode?: boolean;
   readonly graph: boolean;
 }
 
 type PromptOutcome =
-  | { readonly status: "completed"; readonly answer: string; readonly conversation: unknown }
+  | { readonly status: "completed"; readonly answer: string }
   | { readonly status: "failed" | "cancelled"; readonly message: string };
+
+/** One REPL conversation; each prompt selects the provider its factory returned. */
+export interface AgentPromptSession {
+  readonly session: AgentSession<{ task: string }, { answer: string }>;
+  use(model: AgentModel): void;
+}
+
+export function createPromptSession(options: AgentPromptOptions): AgentPromptSession {
+  let provider: AgentModel | undefined;
+  const agent = defineAgent({
+    id: "tubeless-agent",
+    model: (request, context) => {
+      if (!provider) throw new Error("No model is selected for this prompt.");
+      return provider(request, context);
+    },
+    instructions: options.instructions,
+    limits: options.limits,
+    defaultTools: options.defaultTools,
+    codemode: options.codemode,
+  });
+  return {
+    session: createAgentSession(agent),
+    use: (model) => {
+      provider = model;
+    },
+  };
+}
 
 function promptLogger(io: WorkbenchCliIo): PipelineLogger {
   const write = (output: WorkbenchCliIo["stdout"], values: unknown[]) =>
@@ -52,8 +87,8 @@ export async function executeAgentPrompt(
   factory: AgentModelFactory,
   io: WorkbenchCliIo,
   signal: AbortSignal,
-  conversation: unknown
-): Promise<{ readonly exitCode: number; readonly conversation: unknown }> {
+  chat: AgentPromptSession
+): Promise<number> {
   io.stdout.write(`\nagent · ${safeTerminalText(options.model)}\n`);
   const context = commandContext(io, signal);
   const reporter = options.graph
@@ -73,23 +108,9 @@ export async function executeAgentPrompt(
     if (typeof model !== "function")
       throw new Error("Model factory must return an AgentModel function.");
     // SAFETY: the plugin is trusted code; the agent validates every returned decision.
-    let nextConversation = conversation;
-    const provider = model as AgentModel;
-    const agent = defineModelAgent({
-      id: "tubeless-agent",
-      model: async (request, context) => {
-        const response = await provider(
-          context.turn === 1 ? { ...request, conversation } : request,
-          context
-        );
-        // Include the finish response, which is not reduced into another decision.
-        nextConversation = ownState(response.conversation);
-        return { ...response, conversation: nextConversation };
-      },
-      instructions: options.instructions,
-      limits: options.limits,
-    });
-    const run = await agent.run({ task }, undefined, {
+    chat.use(model as AgentModel);
+    // The session commits the conversation only after this run completes and finalizes.
+    const run = await chat.session.run({ task }, undefined, {
       cwd: io.cwd,
       signal,
       // Interactive reporting sanitizes and scopes logs itself. Plain model/tool
@@ -98,7 +119,7 @@ export async function executeAgentPrompt(
       hooks: reporter?.hooks,
     });
     if (run.status === "completed" && run.finalized) {
-      outcome = { status: "completed", answer: run.value.answer, conversation: nextConversation };
+      outcome = { status: "completed", answer: run.value.answer };
     } else {
       const failedStatus = run.status === "cancelled" ? "cancelled" : "failed";
       outcome = {
@@ -117,14 +138,10 @@ export async function executeAgentPrompt(
   }
   if (outcome.status === "completed") {
     io.stdout.write(`\n${safeTerminalLog(outcome.answer)}\n\n`);
-    return { exitCode: TUBELESS_WORKBENCH_EXIT_CODE.success, conversation: outcome.conversation };
+    return TUBELESS_WORKBENCH_EXIT_CODE.success;
   }
   io.stderr.write(`${outcome.message}\n`);
-  return {
-    exitCode:
-      outcome.status === "cancelled"
-        ? TUBELESS_WORKBENCH_EXIT_CODE.cancellation
-        : TUBELESS_WORKBENCH_EXIT_CODE.execution,
-    conversation,
-  };
+  return outcome.status === "cancelled"
+    ? TUBELESS_WORKBENCH_EXIT_CODE.cancellation
+    : TUBELESS_WORKBENCH_EXIT_CODE.execution;
 }

@@ -8,7 +8,7 @@ Every agent now includes the standard workspace tools; custom tools extend the
 registry or replace defaults by name. Stage 5 now projects typed agent history
 and exposes it through CLI text and JSON details. Richer Studio presentation
 remains separate from the in-process core release.
-The default model-backed slice adds `defineModelAgent({ id, model })`, scoped
+The default model-backed slice adds `defineAgent({ id, model })`, scoped
 startup AGENTS.md loading, and isolated provider conversation state through the
 same runtime. `tubeless/agent/openai` supplies native Responses history and
 compaction with no provider imports in core or the generic agent entrypoint.
@@ -35,12 +35,12 @@ mean these probes must not be executed. `design/` is excluded from the npm artif
 ## API decisions
 
 An agent is an ordinary compiled pipeline with one outer step and target,
-`agent`. `defineAgent` preserves its literal ID, raw input schema, transformed
+`agent`. `defineAgentLoop` preserves its literal ID, raw input schema, transformed
 result type, and definition metadata. It works with existing `fromPipeline`,
 `defineProject`, and `definePipelineCommand`. Schema metadata remains necessary
 for automatic CLI flags. There is no separate agent project or command registry.
 
-The `tubeless/agent` entrypoint owns `defineAgent`, `defineTool`, `pipelineTool`,
+The `tubeless/agent` entrypoint owns `defineAgentLoop`, `defineTool`, `pipelineTool`,
 `ToolError`, and their contracts. It depends on core, utilities,
 and trace emission. Core stays independent of the agent entrypoint, model SDKs,
 storage, CLI, and Studio. Custom `decide` callbacks keep application-owned prompts

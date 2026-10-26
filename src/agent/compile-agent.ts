@@ -7,7 +7,8 @@ import type {
 } from "../core/pipeline-types.js";
 import type { AnyStep } from "../core/pipeline-steps.js";
 import { agentError, checkSchema, descriptorFingerprint, jsonDescriptor } from "./agent-state.js";
-import { compileTool } from "./tools.js";
+import { compileTool, type CompiledTool } from "./tools.js";
+import { CODEMODE_TOOL, compileCodemodeTool } from "./codemode.js";
 import { defaultTools } from "./default-tools.js";
 import { resolvedLimits, agentScope } from "./execution-scope.js";
 import { createAgentTurn, type TurnState } from "./turn.js";
@@ -18,6 +19,7 @@ import type {
   AgentDecisionContext,
   AgentState,
   Awaitable,
+  DefaultAgentToolName,
   Input,
   Output,
   Tools,
@@ -30,7 +32,12 @@ export type RuntimeAgentDefinition<
   Result extends StandardSchemaV1,
   State,
   Registry extends Tools,
-> = Omit<AgentDefinition<Id, Options, Result, State, Registry>, "decide" | "dryRun"> & {
+  Codemode extends boolean = boolean,
+  Defaults extends DefaultAgentToolName = DefaultAgentToolName,
+> = Omit<
+  AgentDefinition<Id, Options, Result, State, Registry, Codemode, Defaults>,
+  "decide" | "dryRun"
+> & {
   decide(
     state: AgentState<State>,
     context: AgentDecisionContext<Output<Options>>
@@ -53,8 +60,10 @@ export function compileAgent<
   const Result extends StandardSchemaV1,
   State,
   const Registry extends Tools = {},
+  const Codemode extends boolean = false,
+  const Defaults extends DefaultAgentToolName = DefaultAgentToolName,
 >(
-  definition: RuntimeAgentDefinition<Id, Options, Result, State, Registry>,
+  definition: RuntimeAgentDefinition<Id, Options, Result, State, Registry, Codemode, Defaults>,
   resolveCwd = false
 ): Pipeline<Input<Options>, Output<Result>, "agent", "agent", Id> & {
   readonly optionsSchema: Options;
@@ -74,11 +83,12 @@ export function compileAgent<
     typeof config.initialState !== "function" ||
     typeof config.decide !== "function" ||
     (config.reduce !== undefined && typeof config.reduce !== "function") ||
+    (config.codemode !== undefined && typeof config.codemode !== "boolean") ||
     (config.dryRun !== undefined && typeof config.dryRun !== "function")
   )
     throw agentError(
       "TUBELESS_AGENT_INVALID_DEFINITION",
-      "Agent requires initialState and decide callbacks, and callable reduce/dryRun when supplied"
+      "Agent requires initialState and decide callbacks, callable reduce/dryRun and a boolean codemode when supplied"
     );
   const limits = resolvedLimits(config.limits);
   const resultJsonSchema = jsonDescriptor(
@@ -86,7 +96,17 @@ export function compileAgent<
     config.resultJsonSchema,
     "Agent result"
   );
-  const entries = Object.entries({ ...defaultTools, ...config.tools }).sort(([a], [b]) =>
+  const selected = config.defaultTools ?? (Object.keys(defaultTools) as DefaultAgentToolName[]);
+  if (
+    !Array.isArray(selected) ||
+    selected.some((name) => typeof name !== "string" || !Object.hasOwn(defaultTools, name))
+  )
+    throw agentError(
+      "TUBELESS_AGENT_INVALID_DEFINITION",
+      `defaultTools must list standard tools: ${Object.keys(defaultTools).join(", ")}`
+    );
+  const standard = Object.fromEntries(selected.map((name) => [name, defaultTools[name]]));
+  const entries = Object.entries({ ...standard, ...config.tools }).sort(([a], [b]) =>
     a < b ? -1 : a > b ? 1 : 0
   );
   if (entries.length > 4096)
@@ -94,13 +114,16 @@ export function compileAgent<
       "TUBELESS_AGENT_INVALID_DEFINITION",
       "Agent capability inventory exceeds 4096 tools"
     );
-  const registry = new Map(
+  const tools = new Map(
     entries.map(([name, tool]) => {
       if (!/^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(name))
         throw agentError("TUBELESS_AGENT_INVALID_DEFINITION", `Invalid tool name: ${name}`);
       return [name, compileTool(config.id, name, tool)];
     })
   );
+  const registry: ReadonlyMap<string, CompiledTool> = config.codemode
+    ? new Map([[CODEMODE_TOOL, compileCodemodeTool(config.id, tools)]])
+    : tools;
   const capabilities = Object.freeze(
     [...registry.values()].map(({ name, description, inputJsonSchema }) =>
       Object.freeze({ name, description, inputJsonSchema })

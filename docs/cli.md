@@ -119,7 +119,9 @@ allows another prompt. The command returns the last task's exit code: 0 for
 success, 6 for execution failure, or 7 for cancellation. An external abort or
 SIGTERM ends the session with 7. `--max-turns`, `--max-calls`, and
 `--max-concurrency` override the ordinary agent budgets; `--instructions` appends
-instructions to the default prompt. Model selection defaults to `OPENAI_MODEL`
+instructions to the default prompt. `--tools read,list,search` limits the default tools the agent may use.
+`--codemode` offers one `codemode` tool whose
+JavaScript scripts call the workspace tools; see [code mode](./agents.md#code-mode). Model selection defaults to `OPENAI_MODEL`
 or the OpenAI adapter's default. The agent reads project guidance and has the
 standard `read`, `write`, `edit`, `bash`, `list`, and `search` tools with the host's
 permissions. See [agents](./agents.md#default-model-backed-agent) for their contracts.

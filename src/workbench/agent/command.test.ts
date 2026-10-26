@@ -143,6 +143,43 @@ describe("tubeless agent", () => {
     expect(io.output.join("")).not.toContain("tool/list");
   });
 
+  it("offers only the codemode tool with --codemode", async () => {
+    const { directory } = await writeModule(
+      `export default () => (_request, context) => ({ decision: { kind: "finish", result: { answer: context.capabilities.map(({ name }) => name).join(",") } }, conversation: null });`
+    );
+    const io = captureIo(directory);
+    expect(
+      await runWorkbenchCli(
+        ["agent", "--model-module", "pipeline.mjs", "--prompt", "tools", "--codemode"],
+        io
+      )
+    ).toBe(0);
+    expect(io.output.join("")).toContain("codemode");
+    expect(io.output.join("")).not.toContain("bash");
+  });
+
+  it("limits default tools with --tools and rejects unknown names", async () => {
+    const { directory } = await writeModule(
+      `export default () => (_request, context) => ({ decision: { kind: "finish", result: { answer: context.capabilities.map(({ name }) => name).join(",") } }, conversation: null });`
+    );
+    const io = captureIo(directory);
+    expect(
+      await runWorkbenchCli(
+        ["agent", "--model-module", "pipeline.mjs", "--prompt", "tools", "--tools", "read, list"],
+        io
+      )
+    ).toBe(0);
+    expect(io.output.join("")).toContain("list,read");
+    const rejected = captureIo(directory);
+    expect(
+      await runWorkbenchCli(
+        ["agent", "--model-module", "pipeline.mjs", "--prompt", "tools", "--tools", "rm"],
+        rejected
+      )
+    ).not.toBe(0);
+    expect(rejected.errors.join("")).toContain("--tools accepts a comma-separated subset");
+  });
+
   it("can hide the graph and preserve multiline answers without terminal escape sequences", async () => {
     const { directory } = await writeModule(
       `export default () => () => ({ decision: { kind: "finish", result: { answer: "hello\\n\\u001b[2Jworld" } }, conversation: null });`

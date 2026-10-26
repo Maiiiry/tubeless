@@ -1,4 +1,4 @@
-import { defineModelAgent } from "tubeless/agent";
+import { defineAgent } from "tubeless/agent";
 import { connectMcpServers } from "tubeless/agent/mcp";
 import { openaiModel } from "tubeless/agent/openai";
 
@@ -22,7 +22,7 @@ export async function answerWithMcp(task: string, signal?: AbortSignal) {
     },
     { signal }
   );
-  const agent = defineModelAgent({
+  const agent = defineAgent({
     id: "mcp-agent",
     model: openaiModel(),
     // Named docs__<tool> and files__<tool>; spread alongside your own tools.

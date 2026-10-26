@@ -1,10 +1,11 @@
+import { setExecutionScope } from "../core/execution-scope.js";
 import { PreparedOptions } from "../core/prepared-options.js";
 import { agentScope, type AgentExecutionScope } from "./execution-scope.js";
 import type { PipelinePlan, PipelineStepContext } from "../core/pipeline-types.js";
 import { validateStandardSchema } from "../core/pipeline-validation.js";
 import { throwIfAborted } from "../utilities/abort.js";
 import { agentError } from "./agent-state.js";
-import type { CompiledTool } from "./tools.js";
+import type { CompiledTool, ToolInvocation } from "./tools.js";
 
 type PreparedTool =
   | {
@@ -125,4 +126,22 @@ export async function prepareCalls(
     prepared.push({ ...invocation, id: call.id, plan });
   }
   return prepared;
+}
+
+/** Build one prepared call's child options and context; pipeline tools carry their delegated scope. */
+export function callInvocation(
+  call: PreparedCall,
+  context: PipelineStepContext<object>,
+  invocation: Omit<ToolInvocation, "input" | "call"> & { turn: number }
+): { options: object; context: PipelineStepContext<object>; preparedOptions?: PreparedOptions } {
+  if (call.kind === "handler") {
+    const { turn, ...rest } = invocation;
+    return {
+      options: { ...rest, input: call.input, call: { turn, id: call.id } } satisfies ToolInvocation,
+      context,
+    };
+  }
+  const childContext = { ...context };
+  setExecutionScope(childContext, call.scope);
+  return { options: call.options, context: childContext, preparedOptions: call.preparedOptions };
 }

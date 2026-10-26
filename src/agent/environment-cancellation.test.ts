@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 import { defer } from "../core/child-pipeline.test-support.js";
 import { createPipelineTestRuntime } from "../testing/testing.js";
 import type { PipelineTraceEvent } from "../tracing/tracing-contracts.js";
-import { defineModelAgent, ToolError, type AgentCall } from "./agent.js";
+import { defineAgent, ToolError, type AgentCall } from "./agent.js";
 import type { AgentEnvironmentContext } from "./environment.js";
 import { remote, workspaceAgent } from "./environment.test-support.js";
 
@@ -164,7 +164,7 @@ it.each(["factory", "resolveCwd", "projectInstructions"] as const)(
       conversation: null,
       decision: { kind: "finish", result: { answer: "unused" } },
     }));
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "cancel-environment-startup",
       environment: operation === "factory" ? cancel : environment,
       model,

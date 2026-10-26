@@ -18,5 +18,5 @@ export interface AgentModelResponse {
 /** Pluggable model transport; the harness owns and isolates its returned conversation per run. */
 export type AgentModel = (
   request: AgentModelRequest,
-  context: AgentDecisionContext<{ task: string }>
+  context: AgentDecisionContext<object>
 ) => Awaitable<AgentModelResponse>;

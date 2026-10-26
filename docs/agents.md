@@ -1,9 +1,16 @@
 # Agents and durable execution
 
 `tubeless/agent` builds an ordinary pipeline around a bounded decision loop.
-Each turn calls your `decide` callback, validates its decision, executes a batch
-of registered tools, and reduces their outcomes into the next state. A finish
-decision validates and returns the agent's result.
+Each turn requests a decision, validates it, executes a batch of registered
+tools, and reduces their outcomes into the next state. A finish decision
+validates and returns the agent's result. Two factories share that loop:
+
+- `defineAgent({ id, model })` uses a model as the decision source. Its default
+  `{ task } → { answer }` shape serves prompts and the `tubeless agent` REPL; an
+  `inputSchema`, `task` mapper and `resultSchema` make it a typed step that works
+  autonomously on upstream pipeline data. See [model-backed agents](#default-model-backed-agent).
+- `defineAgentLoop({ id, decide, … })` takes your own `decide` callback and state for
+  scripted, rule-based or hand-integrated decisions.
 
 The [scripted agent recipe](../examples/agent.ts) runs without model credentials:
 
@@ -15,16 +22,16 @@ make plan FILE=examples/agent.ts
 ```
 
 It creates a variable number of calls, preserves their decision order, recovers
-from a deliberate domain error, and transforms the final answer. Its `decide`
-callback is scripted. Supply a custom model integration through `decide`, or use
-the default model-backed factory below.
+from a deliberate domain error, and transforms the final answer. Its
+`defineAgentLoop` `decide` callback is scripted; most model-backed work uses
+`defineAgent` below instead.
 
 ## Default model-backed agent
 
 For a terminal prompt loop with model selection and the live pipeline reporter, use
 `tubeless agent --model gpt-5.4-mini`. Enter a task, read the answer, then prompt
 again; `/model <name>` changes the next task's model while retaining context.
-Completed prompts share conversation state; `/clear` starts fresh.
+Completed prompts share conversation state through a [session](#chat-sessions); `/clear` starts fresh.
 `--prompt 'task'` runs once, and `--model-module ./model.ts`
 loads a custom provider factory. See the [agent CLI](./cli.md#prompt-a-workspace-agent)
 for setup, cancellation, budgets, and the plugin contract.
@@ -32,10 +39,10 @@ for setup, cancellation, budgets, and the plugin contract.
 For general workspace tasks, supply a model and an ID:
 
 ```ts
-import { defineModelAgent } from "tubeless/agent";
+import { defineAgent } from "tubeless/agent";
 import { openaiModel } from "tubeless/agent/openai";
 
-const agent = defineModelAgent({ id: "coding", model: openaiModel() });
+const agent = defineAgent({ id: "coding", model: openaiModel() });
 const { answer } = await agent.runOrThrow(
   { task: "Find and fix the failing test, then verify the change." },
   undefined,
@@ -49,15 +56,15 @@ const { answer } = await agent.runOrThrow(
 with the same option names, so switching providers changes one import and one call:
 
 ```ts
-import { defineModelAgent } from "tubeless/agent";
+import { defineAgent } from "tubeless/agent";
 import { anthropicModel } from "tubeless/agent/anthropic";
 import { openaiModel } from "tubeless/agent/openai";
 
 // Claude through the Anthropic Messages API (ANTHROPIC_API_KEY).
-const claude = defineModelAgent({ id: "coding", model: anthropicModel() });
+const claude = defineAgent({ id: "coding", model: anthropicModel() });
 
 // OpenAI through the Responses API (OPENAI_API_KEY).
-const gpt = defineModelAgent({ id: "coding", model: openaiModel() });
+const gpt = defineAgent({ id: "coding", model: openaiModel() });
 ```
 
 | Option              | `anthropicModel()`                                                         | `openaiModel()`                                     |
@@ -84,9 +91,67 @@ schemas, default tools, a short coding prompt, conversation state, and reduction
 Add `instructions` to customize its behavior, `tools` to extend or override the
 defaults, and `limits` to bound execution. It remains an ordinary pipeline;
 `pipelineTool`, project registration, traces, and cancellation work as before.
-Use `defineAgent` with `decide` when you need custom state, decisions, or result schemas.
+Use `defineAgentLoop` with `decide` when you need custom state or decisions.
 
-The prompt asks the agent to inspect before editing, preserve unrelated work,
+### Chat sessions
+
+Each run of a `defineAgent` agent starts a fresh conversation. To continue one
+across prompts, as the `tubeless agent` REPL does, wrap the agent in a session:
+
+```ts
+import { createAgentSession, defineAgent } from "tubeless/agent";
+
+const agent = defineAgent({ id: "assistant", model: openaiModel() });
+const session = createAgentSession(agent);
+await session.runOrThrow({ task: "Summarize the open issues in README.md" });
+await session.runOrThrow({ task: "Now draft a fix for the first one" }); // same conversation
+await saveConversation(session.conversation); // plain provider-owned data
+const resumed = createAgentSession(agent, { conversation: await loadConversation() });
+```
+
+The conversation advances only when a run completes and finalizes; failed, cancelled
+and dry runs keep the previous one. `clear()` starts fresh. Runs are sequential: a run
+started while another is active rejects with `TUBELESS_AGENT_SESSION_BUSY`. Each run
+still gets fresh limits, its own trace and isolated turn state; only the provider
+conversation carries over. A persisted conversation must come from the same provider
+adapter. Sessions work with typed agents too. `defineAgentLoop` agents own their state
+and have no provider conversation, so they are rejected.
+
+### Typed inputs and results
+
+Supply `inputSchema` with a `task` mapper, and optionally `resultSchema`, to run the
+same model-backed agent over typed pipeline data. The mapper turns validated options
+into the model's task text (nonblank, up to 16 KiB); the model finishes against
+`resultSchema` through `context.resultJsonSchema`, and the harness validates the
+result. `durability.key` callbacks receive the typed options. The agent composes like
+any child pipeline, as in the [extract recipe](../examples/agent-extract.ts):
+
+```ts
+const TriageAgent = defineAgent({
+  id: "triage-agent",
+  model: openaiModel(),
+  inputSchema: extracted, // { files: string[] }
+  resultSchema: triage, // { files: { path, kind }[] }
+  task: ({ files }) => `Classify each extracted file:\n${files.map((f) => `- ${f}`).join("\n")}`,
+  codemode: true,
+});
+const classify = fromPipeline("classify", {
+  pipeline: TriageAgent,
+  dependsOn: [extract],
+  mapOptions: ({ extract }) => extract,
+});
+```
+
+`task` is required exactly when `inputSchema` is set. Without both, the input stays
+`{ task: string }`; without `resultSchema`, the result stays `{ answer: string }`.
+
+Typed agents default to `projectContext: false`: a short task-neutral prompt that
+names no tools or repository conventions, followed by the working directory and your
+`instructions`, which become the agent's main guidance. Grant only the tools the task
+needs with `defaultTools`. Set `projectContext: true` for a typed agent that should
+behave as a coding agent in a repository.
+
+With project context (the default for `{ task }` agents), the prompt asks the agent to inspect before editing, preserve unrelated work,
 recover from tool errors, verify changes, and distinguish verified results from
 remaining limitations. At the first live decision, project context loads
 `AGENTS.md` from the nearest repository root through the run's cwd, in that order.
@@ -109,7 +174,7 @@ enforce them as access controls. Required instruction discovery and reading
 precede a user's requested first task action; optional
 exploration waits until after that action. Already supplied guidance need not be
 reread. Set `projectContext: false`
-to disable discovery. Context is loaded once per invocation; simultaneous and later
+to disable discovery and use the task-neutral prompt instead of the workspace prompt. Context is loaded once per invocation; simultaneous and later
 runs have independent state. Missing instruction files are allowed; unreadable,
 non-text, or oversized files fail before a model request rather than silently
 discarding guidance. Each file uses the read tool's 16 KiB/2,000-line bounds;
@@ -195,7 +260,7 @@ and crash-safe resume are outside this helper's contract. `tubeless agent` owns 
 REPL session around it, retaining completed conversation across user prompts.
 The adapter appends each new task on the first decision of a prompt, closes its
 synthetic `_finish` function call, and can compact completed history before
-appending the next user message. Direct `defineModelAgent` runs remain isolated.
+appending the next user message. Direct `defineAgent` runs remain isolated.
 
 The executable [model agent recipe](../examples/agent-model.ts) is registered as
 `coding-agent` in the example project. Run it from the workspace it should change:
@@ -220,7 +285,7 @@ signatures, and appends one user message of `tool_result` blocks per batch. A la
 prompt on the same conversation closes `_finish` with a `tool_result` and adds the new
 task to that user message, because the Messages API cannot follow a user message with
 another user message. Compaction runs on that completed history before the new task is
-appended, and the task stays verbatim. Direct `defineModelAgent` runs remain isolated.
+appended, and the task stays verbatim. Direct `defineAgent` runs remain isolated.
 Recoverable tool failures set `is_error: true`. History is never edited except by
 compaction, which keeps it valid for models that check replayed thinking. Current
 Claude models reject forced tool choice, so the adapter sends `tool_choice: "auto"` and
@@ -284,12 +349,12 @@ provider's model ID. Then turn off features the server does not support:
   strict tool use, `cache_control`, and on-demand compaction.
 
 ```ts
-import { defineModelAgent } from "tubeless/agent";
+import { defineAgent } from "tubeless/agent";
 import { anthropicModel } from "tubeless/agent/anthropic";
 import { openaiModel } from "tubeless/agent/openai";
 
 // OpenRouter through its Responses endpoint.
-export const RouterAgent = defineModelAgent({
+export const RouterAgent = defineAgent({
   id: "router-coding",
   model: openaiModel({
     baseUrl: "https://openrouter.ai/api/v1",
@@ -300,7 +365,7 @@ export const RouterAgent = defineModelAgent({
 });
 
 // Baseten through its Messages endpoint (bearer auth; x-api-key is rejected).
-export const BasetenAgent = defineModelAgent({
+export const BasetenAgent = defineAgent({
   id: "baseten-coding",
   model: anthropicModel({
     baseUrl: "https://inference.baseten.co",
@@ -347,6 +412,11 @@ They create disposable workspaces and check investigation, actual edits, success
 verification, startup project instructions, nested guidance discovered before a
 requested file read, recovery from a missing file, and forced compaction. They
 also require existing tests and unrelated work to remain intact.
+`bun run eval:agent -- --codemode` runs the same cases through one `codemode` tool.
+Its checks are objective: fixture checks pass, preserved files stay intact, answers
+follow guidance and compaction still completes. Call-order assertions apply only to
+direct calls, since script calls are child runs; the report keeps every script for
+review in `.context/model-agent-codemode-eval.json`.
 Results are written to `.context/model-agent-eval.json`; these paid evaluations
 are separate from credential-free CI. Reports retain full call arguments, observed
 tool outcomes, decision batches with the outcomes supplied to each decision, and
@@ -444,7 +514,7 @@ their tools to any agent. It is dependency-free and speaks Streamable HTTP
 (`url`) and local stdio (`command`); the generic agent entrypoint never imports it.
 
 ```ts
-import { defineModelAgent } from "tubeless/agent";
+import { defineAgent } from "tubeless/agent";
 import { connectMcpServers } from "tubeless/agent/mcp";
 import { openaiModel } from "tubeless/agent/openai";
 
@@ -452,7 +522,7 @@ await using mcp = await connectMcpServers({
   docs: { url: "https://mcp.example.com/mcp", headers: { Authorization: `Bearer ${token}` } },
   files: { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "."] },
 });
-const agent = defineModelAgent({ id: "mcp-agent", model: openaiModel(), tools: mcp.tools });
+const agent = defineAgent({ id: "mcp-agent", model: openaiModel(), tools: mcp.tools });
 ```
 
 Tools are named `<server>__<tool>`, with characters outside `[A-Za-z0-9_-]`
@@ -501,19 +571,121 @@ capabilities and answers only `ping`. Stdio servers inherit the host environment
 plus `env`, and HTTP headers are sent as given: each server is a separate
 authority outside `AgentEnvironment`.
 
+## Code mode
+
+Set `codemode: true` on `defineAgent` or `defineAgentLoop`, or pass
+`tubeless agent --codemode`, to advertise one `codemode` tool instead of the
+registry. Code mode is a setup-level permission: an autonomous pipeline agent
+uses it only when its definition opts in. Each call runs a JavaScript async
+function body that calls the registered tools as typed async functions and
+returns a JSON value. Registered tools include the defaults, custom tools,
+pipeline tools and MCP tools. A script can chain dependent calls, loop and filter
+results without a decision per call, so large MCP inventories cost one tool slot.
+
+```ts
+await using mcp = await connectMcpServers({ docs: { url: "https://mcp.example.com/mcp" } });
+const agent = defineAgent({
+  id: "codemode-agent",
+  model: openaiModel(),
+  tools: mcp.tools,
+  codemode: true,
+});
+```
+
+For `defineAgentLoop`, `codemode: true` makes `AgentCall<Registry, true>`, `AgentDecision<Registry, Result, true>`
+and `AgentOutcome<Registry, true>` name only `codemode`, as in the
+[code-mode recipe](../examples/agent-codemode.ts): the call input is `{ code }`
+and a successful outcome's value is a `CodemodeResult`. `reduce` receives those
+outcomes. Decisions that name a registered tool directly fail as unknown tools,
+and `context.capabilities` lists only `codemode`.
+
+The tool's description contains generated declarations, in registry order:
+
+```ts
+declare const tools: {
+  /** Read a UTF-8 file up to 1 MiB. … */
+  read(input: { path: string; startLine: number | null; maxLines: number | null }): Promise<{
+    path: string;
+    content: string;
+    // …
+  }>;
+  "docs__search-pages"(input: { query: string }): Promise<{
+    content: { type: string; text?: string }[];
+    structuredContent?: Record<string, unknown>;
+  }>;
+};
+```
+
+Inputs come from each tool's JSON Schema descriptor. Outputs come from the output
+schema's Standard JSON Schema converter when it has one; otherwise they are
+`unknown`. Names that are not identifiers are quoted; reach them with bracket
+access, such as `tools["docs__search-pages"]`. Declarations are bounded to 48 KiB; expose
+fewer tools, for example with MCP `tools` allowlists, if the inventory exceeds it.
+The model-backed prompt adds code-mode guidance, including reading AGENTS.md in its
+own script before acting on it.
+
+The input is `{ code }`, up to 65,536 characters. A completed script returns
+`{ result, logs, logsTruncated }`: the JSON-serialized return value (`null` for
+`undefined`) up to 16 KiB, and up to 200 `console.*` lines and 4 KiB of logs.
+The following become recoverable observations:
+
+- `CODEMODE_SCRIPT_ERROR`: syntax errors (including TypeScript syntax) and uncaught
+  exceptions, with the script line and logs appended.
+- `CODEMODE_TIMEOUT`: the script exceeded 60 seconds.
+- `CODEMODE_RESULT_TOO_LARGE`: the return value exceeded 16 KiB. Its tool calls
+  already ran.
+- `CODEMODE_SANDBOX_ERROR`: the worker stopped, for example on memory exhaustion.
+
+Inside a script, a tool call goes through the same preparation, admission and
+child execution as a direct call. A recoverable `ToolError` or invalid arguments
+(`CODEMODE_INVALID_CALL`) reject the call's promise with an `Error` carrying
+`code` and `message`, which the script may catch. Handler exceptions, limit
+exhaustion and cancellation stop the script and fail the run, just as for a direct
+call. Each script call is charged against `maxCalls` and admitted through the
+shared leaf queue, so `maxConcurrency` bounds `Promise.all` fan-out. Calls the
+script started but did not await settle before its result is published.
+
+The script is logged on its call (up to 16 KiB). Each script call is a child run
+of that call, with item key `<call id>.<n>` and the usual activity log, so `--trace`,
+`history` and Studio show what the script did. Durable agents checkpoint the script
+as one call: it is replay-safe only when every reachable tool is replay-safe.
+Otherwise an interrupted script becomes `TUBELESS_AGENT_CALL_INTERRUPTED`. Nested
+calls are not journaled individually.
+
+Dry runs execute scripts, and each script call follows its tool's own dry-run
+policy: `read`, `list` and `search` run, while tools without a preview handler,
+such as `write`, `edit`, `bash` and MCP tools, are skipped. A script that awaits a
+skipped result fails the preview, as a direct call would. A `dryRun` decision
+source can therefore preview read-only scripts.
+
+Scripts run in a fresh Node worker thread per call, with heap limits, inside a
+`node:vm` context. That context disables string code generation (`eval`, `Function`)
+and WebAssembly, and has no `process`, `require`, `fetch` or timers. Values cross
+into the script only as JSON text, so it holds no host-realm objects. This is
+best-effort isolation, not a security boundary. Like `bash`, treat scripts as code
+running with the host's authority. Code mode requires `node:worker_threads` and
+`node:vm` (Node or Bun); platforms such as Cloudflare Workers cannot run it yet.
+The [code-mode recipe](../examples/agent-codemode.ts) runs a scripted survey
+without credentials.
+
 ## Define tools and an agent
 
-Every `defineAgent` includes `read`, `write`, `edit`, `bash`, `list`, and `search`,
-including child agents. The optional `tools` object adds custom capabilities;
-a custom entry with a built-in name replaces that tool for this agent. The
-decision context advertises the merged registry, and `AgentCall`, `AgentDecision`,
-and `AgentOutcome` include the defaults with each custom override's exact types.
+Every agent, including child agents, includes `read`, `write`, `edit`, `bash`, `list`,
+and `search` unless its setup narrows them. Pass `defaultTools` to either factory to
+grant only some, for example `defaultTools: ["read", "list", "search"]` for an
+autonomous agent that must not write or run commands; `[]` grants none. Unknown names
+fail at definition. The optional `tools` object adds custom capabilities; a custom
+entry with a built-in name replaces that tool for this agent. The decision context
+advertises the merged registry, code-mode declarations list only it, and other
+names fail as unknown tools. `AgentCall`, `AgentDecision`, and `AgentOutcome` take the
+selection as their last type parameter (`AgentCall<Registry, false, "read" | "list">`)
+and include each custom override's exact types.
 Narrow outcomes by both `ok` and `tool` before reading a tool-specific value.
 
 Use `defineTool` for a handler with a description, `inputSchema`, `outputSchema`,
 and `run(validatedInput, context)`. Both schemas follow Standard Schema V1.
 The input schema must expose Standard JSON Schema input conversion for
-`draft-2020-12`, or supply an explicit `inputJsonSchema` object. `defineAgent`
+`draft-2020-12`, or supply an explicit `inputJsonSchema` object. `defineAgentLoop`
 similarly requires a `resultSchema` with input conversion or `resultJsonSchema`.
 Descriptors are owned, frozen JSON data; explicit descriptors assert agreement
 with the validators, which remain authoritative. No schema or model SDK is a
@@ -524,7 +696,7 @@ hyphens, up to 128 characters. A call ID is a nonblank string of at most 256
 characters, unique within its turn. Model data can select registered names and
 supply arguments; it cannot add registry entries or change harness limits.
 
-`defineAgent` takes `id`, `inputSchema`, `resultSchema`, `initialState`, and
+`defineAgentLoop` takes `id`, `inputSchema`, `resultSchema`, `initialState`, and
 `decide`, with optional `tools`, `reduce`, `dryRun`, and `limits`. It returns a
 pipeline with the single step and target `agent`. Its exact raw input, schema
 transformed output, and literal ID work with ordinary `fromPipeline`,
@@ -826,13 +998,13 @@ after changing its definition, prompt, validators, reducers, model configuration
 or tool implementations.
 
 ```ts
-import { defineModelAgent } from "tubeless/agent";
+import { defineAgent } from "tubeless/agent";
 import { openSqliteAgentCheckpointStore } from "tubeless/agent/node";
 import { openaiModel } from "tubeless/agent/openai";
 
 const store = await openSqliteAgentCheckpointStore(".tubeless/agents.sqlite");
 try {
-  const agent = defineModelAgent({
+  const agent = defineAgent({
     id: "coding",
     implementationVersion: "coding-v1",
     model: openaiModel(),
@@ -934,11 +1106,11 @@ Supply `environment` to either factory to place all default workspace tools and
 project-guidance discovery in a different workspace:
 
 ```ts
-import { defineModelAgent, type AgentEnvironment } from "tubeless/agent";
+import { defineAgent, type AgentEnvironment } from "tubeless/agent";
 import { openaiModel } from "tubeless/agent/openai";
 
 function agentForWorkspace(environment: AgentEnvironment) {
-  return defineModelAgent({ id: "remote-coding", model: openaiModel(), environment });
+  return defineAgent({ id: "remote-coding", model: openaiModel(), environment });
 }
 ```
 

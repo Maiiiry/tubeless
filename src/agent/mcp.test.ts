@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createPipelineTestRuntime } from "../testing/testing.js";
-import { defineAgent, type AgentOutcome } from "./agent.js";
+import { defineAgentLoop, defineAgent, type AgentOutcome } from "./agent.js";
 import { emptyInput, schema } from "./agent.test-support.js";
 import { connectMcpServers, type McpServers, type McpTool } from "./mcp.js";
 import { serveFakeMcpHttp } from "./mcp.test-support.js";
@@ -22,7 +22,7 @@ function callingAgent(
   tools: Readonly<Record<string, McpTool>>,
   calls: { tool: string; input: unknown }[]
 ) {
-  return defineAgent({
+  return defineAgentLoop({
     id: "mcp-agent",
     inputSchema: emptyInput,
     resultSchema: schema<unknown>((value) => ({ value })),
@@ -43,6 +43,60 @@ function callingAgent(
 }
 
 describe("MCP servers", () => {
+  it("calls MCP tools from one code-mode script with declared result types", async () => {
+    const mcp = await connectMcpServers({ fake: stdioServer });
+    open.push(mcp);
+    let description = "";
+    const agent = defineAgent({
+      id: "mcp-codemode",
+      projectContext: false,
+      codemode: true,
+      tools: mcp.tools,
+      model: (request, context) => {
+        description = context.capabilities[0]!.description;
+        return context.turn === 1
+          ? {
+              conversation: null,
+              decision: {
+                kind: "continue",
+                calls: [
+                  {
+                    id: "script",
+                    tool: "codemode",
+                    input: {
+                      code: `
+                        const texts = [];
+                        for (const times of [1, 2]) {
+                          const { content } = await tools.fake__echo({ text: "ab", times });
+                          texts.push(content[0].text);
+                        }
+                        try { await tools.fake__fail({}); } catch (error) { texts.push(error.code); }
+                        return texts;`,
+                    },
+                  },
+                ],
+              },
+            }
+          : {
+              conversation: null,
+              decision: { kind: "finish", result: { answer: JSON.stringify(request.outcomes) } },
+            };
+      },
+    });
+    const { answer } = await agent.runOrThrow({ task: "echo" });
+    expect(JSON.parse(answer)[0].value.result).toEqual(["ab", "abab", "MCP_TOOL_ERROR"]);
+    expect(description).toContain(`fake__echo(input: {
+    text: string;
+    times: number | null;
+  }): Promise<{
+    content: {
+      type: string;
+      text?: string;
+    }[];
+    structuredContent?: Record<string, unknown>;
+  }>;`);
+  });
+
   it("exposes stdio tools with strict descriptors and maps results and tool errors", async () => {
     const mcp = await connectMcpServers({ fake: stdioServer });
     open.push(mcp);
@@ -55,7 +109,7 @@ describe("MCP servers", () => {
       "fake__slow",
     ]);
     let descriptors: Record<string, unknown> = {};
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       id: "describe",
       inputSchema: emptyInput,
       resultSchema: schema<unknown>((value) => ({ value })),

@@ -15,6 +15,8 @@ import { AgentPipelineCommand } from "../agent-pipeline.js";
 import { CodingAgent } from "../agent-model.js";
 import { ClaudeCodingAgent } from "../agent-model-anthropic.js";
 import { EnvironmentWorkspaceAgent } from "../agent-environment.js";
+import { CodemodeAgent } from "../agent-codemode.js";
+import { ExtractTriageCommand } from "../agent-extract.js";
 import { DurableWorkspaceAgent } from "../agent-durable.js";
 import { OpenAIAgentCommand } from "../agent-openai.ts";
 import { WorkspaceAgentCommand } from "../agent-workspace.ts";
@@ -47,6 +49,10 @@ export default defineProject(
     CodingAgent,
     ClaudeCodingAgent,
     EnvironmentWorkspaceAgent,
+    // Permitted code mode: one script chains workspace tools; each nested call is a child run.
+    CodemodeAgent,
+    // A typed model-backed agent consumes an extract step's output inside a pipeline.
+    ExtractTriageCommand,
     DurableWorkspaceAgent,
     // Record with --trace/--store; history <run-id> shows turns, calls and child agents.
     DelegatingAgentCommand,

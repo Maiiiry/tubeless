@@ -1,5 +1,5 @@
 import { createSteps, definePipeline } from "tubeless";
-import { defineAgent, pipelineTool, type AgentDecision } from "tubeless/agent";
+import { defineAgentLoop, pipelineTool, type AgentDecision } from "tubeless/agent";
 import { definePipelineCommand } from "tubeless/cli";
 import { ScriptedAgent, textAnswer, textOptions } from "./agent.js";
 
@@ -48,7 +48,7 @@ function decide(state: Readonly<State>): AgentDecision<typeof tools, string> {
   };
 }
 
-export const DelegatingAgent = defineAgent({
+export const DelegatingAgent = defineAgentLoop({
   id: "delegating-agent",
   description: "Delegate a dynamic word batch, then call an ordinary summary pipeline.",
   implementationVersion: "delegation-v1",

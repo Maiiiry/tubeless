@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defineAgent, defineTool, pipelineTool, ToolError } from "../agent/agent.js";
+import { defineAgentLoop, defineTool, pipelineTool, ToolError } from "../agent/agent.js";
 import { emptyInput, numberSchema } from "../agent/agent.test-support.js";
 import { createSteps, definePipeline, type Pipeline } from "../core/pipeline.js";
 import { createPipelineTestRuntime } from "../testing/testing.js";
@@ -13,7 +13,7 @@ import { projectAgentHistory } from "./agent-history.js";
 import { createRunHistoryIndex, summarizeRun } from "./run-history.js";
 
 function fixture() {
-  const child = defineAgent({
+  const child = defineAgentLoop({
     id: "history-child",
     inputSchema: emptyInput,
     resultSchema: numberSchema,
@@ -22,7 +22,7 @@ function fixture() {
   });
   const nested = createSteps(emptyInput).fromPipeline("nested", { pipeline: child });
   const wrapper = definePipeline({ id: "history-wrapper", steps: [nested], finalize: nested });
-  return defineAgent({
+  return defineAgentLoop({
     id: "history-agent",
     inputSchema: emptyInput,
     resultSchema: numberSchema,
@@ -85,7 +85,7 @@ async function record(pipeline: Pipeline<object, unknown>, dryRun = false, signa
 
 describe("agent history projection", () => {
   it("keeps every observed call when live progress rows are truncated", async () => {
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       id: "wide-history",
       inputSchema: emptyInput,
       resultSchema: numberSchema,
@@ -323,7 +323,7 @@ describe("agent history projection", () => {
     "records %s termination without inventing a finish",
     async (expected) => {
       const controller = new AbortController();
-      const agent = defineAgent({
+      const agent = defineAgentLoop({
         id: "terminal-agent",
         inputSchema: emptyInput,
         resultSchema: numberSchema,

@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "tubeless";
-import { defineAgent, defineTool, type AgentDecision } from "tubeless/agent";
+import { defineAgentLoop, defineTool, type AgentDecision } from "tubeless/agent";
 import { definePipelineCommand } from "tubeless/cli";
 import { textAnswer } from "./agent.js";
 
@@ -36,7 +36,7 @@ const tools = {
   }),
 };
 
-export const WorkspaceAgent = defineAgent({
+export const WorkspaceAgent = defineAgentLoop({
   id: "workspace-agent",
   name: "Workspace tools agent",
   description:

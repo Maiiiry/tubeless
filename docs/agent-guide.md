@@ -414,11 +414,23 @@ read when a pipeline needs them.
   asynchronous setup must honor cancellation and release its resources.
   Adapters append the new task on `context.turn === 1` and return the full final
   conversation. Failed/cancelled prompts retain the previous completed context.
-  Ordinary `defineModelAgent` pipeline invocations remain isolated per run.
+  Ordinary `defineAgent` pipeline invocations remain isolated per run; wrap one in
+  `createAgentSession(agent)` to continue a conversation across prompts in your own app
+  (`session.conversation` persists, `clear()` resets). See [chat sessions](./agents.md#chat-sessions).
   See [agent CLI usage](./cli.md#prompt-a-workspace-agent) and the
   [provider plugin example](../examples/agent-repl-model.ts).
 
-- For a general workspace agent, use `defineModelAgent({ id, model })` from
+- For a typed agent inside a pipeline, use `defineAgent({ id, model, inputSchema, task,
+  resultSchema })`: `task` maps validated options (for example an extract step's output)
+  to the model's task text, and the model finishes against `resultSchema`. Compose it with
+  `fromPipeline` like any child pipeline; adapt the [extract recipe](../examples/agent-extract.ts).
+  Typed agents default to a task-neutral prompt without AGENTS.md (`projectContext: false`),
+  so `instructions` is their main guidance; opt in with `projectContext: true`.
+  `defineAgentLoop` is for custom `decide` callbacks and state. Grant autonomous agents only
+  the standard tools they need with `defaultTools` (for example `["read", "list", "search"]`);
+  every default, including `bash`, is granted otherwise.
+
+- For a general workspace agent, use `defineAgent({ id, model })` from
   `tubeless/agent` with `openaiModel()` from `tubeless/agent/openai` or
   `anthropicModel()` from `tubeless/agent/anthropic`. Both adapters share option
   names; set `baseUrl` (or `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`) for compatible
@@ -455,7 +467,19 @@ read when a pipeline needs them.
   Read [MCP servers](./agents.md#connect-mcp-servers) and adapt the
   [MCP recipe](../examples/agent-mcp.ts).
 
-- Use `defineAgent`, `defineTool`, and `pipelineTool` from `tubeless/agent` for an in-process
+- To let an agent chain many tools without a decision per call, set `codemode: true`
+  on `defineAgent` or `defineAgentLoop` (or run `tubeless agent --codemode`). It is a
+  setup-level permission; `AgentCall`/`AgentDecision`/`AgentOutcome` then take `true`
+  as their code-mode parameter and name only `codemode`. The model sees one
+  `codemode` tool whose description declares every registered tool as
+  `tools.<name>(input): Promise<output>`; its JavaScript script calls them and returns
+  a JSON result with console logs. Script calls are ordinary budgeted child runs of
+  that call. Recoverable tool errors throw inside the script; fatal handler errors
+  fail the run. Dry runs execute scripts with each tool's dry-run policy. Sandboxing is best-effort (worker thread plus `node:vm`) and needs Node
+  or Bun. Read [code mode](./agents.md#code-mode) and adapt the
+  [code-mode recipe](../examples/agent-codemode.ts).
+
+- Use `defineAgentLoop`, `defineTool`, and `pipelineTool` from `tubeless/agent` for an in-process
   decision loop over registered handlers, pipelines, and child agents. Read [agents](./agents.md) and
   adapt the credential-free [scripted recipe](../examples/agent.ts) or the
   [OpenAI recipe](../examples/agent-openai.ts) for a real provider callback. Keep model

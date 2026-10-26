@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { expect, it, vi } from "vitest";
 import {
-  defineAgent,
+  defineAgentLoop,
   defineTool,
   pipelineTool,
   createMemoryAgentCheckpointStore,
@@ -57,7 +57,7 @@ it("resumes an acknowledged decision without repeating argument transforms, comp
       ? { kind: "continue", calls: [{ id: "work", tool: "work", input: "3" }] }
       : { kind: "finish", result: state }
   );
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "resumed-validation",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -98,7 +98,7 @@ it.each([false, true])(
       committed
     );
     const handler = vi.fn(() => 7);
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       id: "ambiguous-outcome",
       implementationVersion: "1",
       inputSchema: emptyInput,
@@ -137,7 +137,7 @@ it("replays interrupted safe calls and preserves committed outcomes in decision 
     }
     return 2;
   });
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "ordered-recovery",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -185,7 +185,7 @@ it("does not reset decision budgets after interrupted model work", async () => {
     abort.abort(new Error("stop"));
     return { kind: "finish", result: 1 };
   });
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "decision-budget",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -207,7 +207,7 @@ it("does not charge an admitted batch twice or reset call budgets on restart", a
     abort.abort(new Error("stop"));
     return 1;
   });
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "call-budget",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -246,7 +246,7 @@ it("resumes child agents through ordinary fan-out pipelines with stable identiti
     return input;
   });
   const input = schema<{ n: number }>((value) => ({ value: value as { n: number } }));
-  const child = defineAgent({
+  const child = defineAgentLoop({
     id: "durable-child",
     implementationVersion: "1",
     inputSchema: input,
@@ -275,7 +275,7 @@ it("resumes child agents through ordinary fan-out pipelines with stable identiti
     mapOptions: (n) => ({ n }),
   });
   const wrapper = definePipeline({ id: "durable-wrapper", steps: [items], finalize: items });
-  const parent = defineAgent({
+  const parent = defineAgentLoop({
     id: "durable-parent",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -311,7 +311,7 @@ it("rejects different inputs and semantic versions before replaying stored work"
   const store = createMemoryAgentCheckpointStore();
   const decide = vi.fn(() => ({ kind: "finish", result: 1 }));
   const agent = (version: string) =>
-    defineAgent({
+    defineAgentLoop({
       id: "bound-execution",
       implementationVersion: version,
       inputSchema: schema<{ value: number }>((value) => ({ value: value as { value: number } })),
@@ -329,7 +329,7 @@ it("rejects different inputs and semantic versions before replaying stored work"
 it("resumes a durable execution after the host identity changes", async () => {
   const store = createMemoryAgentCheckpointStore();
   const work = vi.fn(() => 7);
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "host-independent",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -364,7 +364,7 @@ it("rejects resuming a durable execution under a different explicit environment 
   const store = createMemoryAgentCheckpointStore();
   const decide = vi.fn(() => ({ kind: "finish", result: 1 }));
   const agent = (id: string) =>
-    defineAgent({
+    defineAgentLoop({
       id: "scoped-authority",
       implementationVersion: "1",
       inputSchema: emptyInput,
@@ -385,7 +385,7 @@ it.each([false, true])(
     const store = createMemoryAgentCheckpointStore();
     const initialState = vi.fn(() => 0);
     const decide = vi.fn(() => ({ kind: "finish", result: 1 }));
-    const child = defineAgent({
+    const child = defineAgentLoop({
       id: "unversioned-child",
       inputSchema: emptyInput,
       resultSchema: numberSchema,
@@ -399,7 +399,7 @@ it.each([false, true])(
     const { fromPipeline } = createSteps(emptyInput);
     const step = fromPipeline("child", { pipeline: child });
     const wrapper = definePipeline({ id: "unversioned-wrapper", steps: [step], finalize: step });
-    const parent = defineAgent({
+    const parent = defineAgentLoop({
       id: "versioned-parent",
       implementationVersion: "1",
       inputSchema: emptyInput,
@@ -443,7 +443,7 @@ it("rejects changed child versions before restoring a completed ancestor", async
   const childDecide = vi.fn(() => ({ kind: "finish", result: 1 }));
   const initialState = vi.fn(() => 0);
   const parent = (version: string) => {
-    const child = defineAgent({
+    const child = defineAgentLoop({
       id: "versioned-child",
       implementationVersion: version,
       inputSchema: emptyInput,
@@ -454,7 +454,7 @@ it("rejects changed child versions before restoring a completed ancestor", async
     const { fromPipeline } = createSteps(emptyInput);
     const step = fromPipeline("child", { pipeline: child });
     const wrapper = definePipeline({ id: "versioned-wrapper", steps: [step], finalize: step });
-    return defineAgent({
+    return defineAgentLoop({
       id: "bound-parent",
       implementationVersion: "1",
       inputSchema: emptyInput,
@@ -481,7 +481,7 @@ it("rejects changed child versions before restoring a completed ancestor", async
 it("does not open checkpoint storage during planning or previews", async () => {
   const acquire = vi.fn();
   const decide = () => ({ kind: "finish", result: 1 });
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "durable-preview",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -499,7 +499,7 @@ it("does not open checkpoint storage during planning or previews", async () => {
 it("keeps an explicitly previewed child out of a live parent's recovery state", async () => {
   const store = createMemoryAgentCheckpointStore();
   const live = vi.fn(() => ({ kind: "finish", result: 1 }));
-  const child = defineAgent({
+  const child = defineAgentLoop({
     id: "previewed-child",
     inputSchema: emptyInput,
     resultSchema: numberSchema,
@@ -510,7 +510,7 @@ it("keeps an explicitly previewed child out of a live parent's recovery state", 
   const { fromPipeline } = createSteps(emptyInput);
   const preview = fromPipeline("preview", { pipeline: child, controls: { dryRun: true } });
   const wrapper = definePipeline({ id: "preview-wrapper", steps: [preview], finalize: preview });
-  const parent = defineAgent({
+  const parent = defineAgentLoop({
     id: "live-parent",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -545,7 +545,7 @@ it("rehydrates a child agent's prepared options without repeating its schema tra
   const transform = vi.fn((value: unknown) => ({
     value: { value: Number((value as { raw: string }).raw) },
   }));
-  const child = defineAgent({
+  const child = defineAgentLoop({
     id: "transformed-child",
     implementationVersion: "1",
     inputSchema: schema<{ raw: string }, { value: number }>(transform),
@@ -553,7 +553,7 @@ it("rehydrates a child agent's prepared options without repeating its schema tra
     initialState: () => 0,
     decide: (_state, context) => ({ kind: "finish", result: context.options.value }),
   });
-  const parent = defineAgent({
+  const parent = defineAgentLoop({
     id: "transformed-parent",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -592,7 +592,7 @@ it("retains parallel outcomes when storage acknowledgements settle in reverse ca
     }
     return outcomes.map((outcome: { ok: boolean; value?: unknown }) => Number(outcome.value));
   });
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "parallel-recovery",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -627,7 +627,7 @@ it("persists terminal failures rather than rerunning broken callbacks", async ()
   const decide = vi.fn(() => {
     throw new Error("fatal model failure");
   });
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "failed-execution",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -647,7 +647,7 @@ it("rejects corrupt receipts before opening an execution or invoking a callback"
   await lease.write(plainAgentCheckpointCodec.encode({ version: 999, agents: {}, budgets: {} }));
   await lease.close();
   const decide = vi.fn(() => ({ kind: "finish", result: 1 }));
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "corrupt-execution",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -688,7 +688,7 @@ it("uses a custom lossless codec for validated class arguments, outcomes and fin
   const input = vi.fn((value: unknown) => ({ value: new Date(String(value)) }));
   const result = vi.fn((value: unknown) => ({ value: new Date(Number(value)) }));
   const handler = vi.fn((value: Date) => new Date(value.getTime() + 1000));
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "custom-checkpoint-codec",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -730,7 +730,7 @@ it("resumes a version-one call receipt without rerunning its completed work or i
   const store = createMemoryAgentCheckpointStore();
   const initialState = vi.fn(() => 0);
   const work = vi.fn(() => 7);
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "legacy-receipt",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -808,7 +808,7 @@ it("resumes a version-one call receipt without rerunning its completed work or i
 it("persists a terminal failure when concurrent child admissions exceed the ancestor budget", async () => {
   const store = createMemoryAgentCheckpointStore();
   const decide = vi.fn(() => ({ kind: "finish", result: 1 }));
-  const child = defineAgent({
+  const child = defineAgentLoop({
     id: "budget-child",
     implementationVersion: "1",
     inputSchema: emptyInput,
@@ -825,7 +825,7 @@ it("persists a terminal failure when concurrent child admissions exceed the ance
     mapOptions: () => ({}),
   });
   const wrapper = definePipeline({ id: "budget-wrapper", steps: [children], finalize: children });
-  const parent = defineAgent({
+  const parent = defineAgentLoop({
     id: "budget-parent",
     implementationVersion: "1",
     inputSchema: emptyInput,

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defineModelAgent, defineTool, type AgentModelRequest } from "./agent.js";
+import { defineAgent, defineTool, type AgentModelRequest } from "./agent.js";
 import { openaiModel } from "./openai.js";
 
 const directories: string[] = [];
@@ -38,7 +38,7 @@ describe("OpenAI model", () => {
     async (reasoningEffort) => {
       const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response([finish()]));
       vi.stubGlobal("fetch", fetcher);
-      await defineModelAgent({
+      await defineAgent({
         id: "reasoning",
         projectContext: false,
         model: openaiModel({ apiKey: "fixture", reasoningEffort }),
@@ -68,7 +68,7 @@ describe("OpenAI model", () => {
     vi.stubEnv("OPENAI_MODEL", "factory-time-model");
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "model-selection",
       projectContext: false,
       model: openaiModel({ apiKey: "fixture", ...(model === undefined ? {} : { model }) }),
@@ -113,7 +113,7 @@ describe("OpenAI model", () => {
         .mockResolvedValueOnce(response([finish()]));
       vi.stubGlobal("fetch", fetcher);
       const transport = openaiModel({ apiKey: "fixture", compactAfterBytes });
-      const agent = defineModelAgent({
+      const agent = defineAgent({
         id: "compact-with-large-schemas",
         projectContext: false,
         tools: {
@@ -218,7 +218,7 @@ describe("OpenAI model", () => {
         },
       };
       const transport = openaiModel({ apiKey: "fixture", compactAfterBytes: 1 });
-      const result = await defineModelAgent({
+      const result = await defineAgent({
         id: "schema-reference",
         projectContext: false,
         tools: {
@@ -261,7 +261,7 @@ describe("OpenAI model", () => {
     vi.stubGlobal("fetch", fetcher);
     const requests: AgentModelRequest[] = [];
     const transport = openaiModel({ apiKey: "fixture" });
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "large-batch",
       limits: { maxConcurrency: 8 },
       model: (request, context) => {
@@ -296,7 +296,7 @@ describe("OpenAI model", () => {
       .mockResolvedValueOnce(response([call("list", {})]))
       .mockResolvedValueOnce(new Response("private provider error", { status: 500 }));
     vi.stubGlobal("fetch", fetcher);
-    const result = await defineModelAgent({
+    const result = await defineAgent({
       id: "compact-error",
       model: openaiModel({ apiKey: "fixture", compactAfterBytes: 1 }),
     }).run({ task: "List" }, undefined, { cwd });
@@ -317,7 +317,7 @@ describe("OpenAI model", () => {
     );
     vi.stubGlobal("fetch", fetcher);
     await expect(
-      defineModelAgent({
+      defineAgent({
         id: "deadline",
         projectContext: false,
         model: openaiModel({ apiKey: "fixture", timeoutMs: 25 }),
@@ -346,7 +346,7 @@ describe("OpenAI model", () => {
       .mockResolvedValueOnce(response(output))
       .mockResolvedValueOnce(response([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "openai",
       model: openaiModel({ apiKey: "fixture", model: "fixture-model" }),
     });
@@ -391,7 +391,7 @@ describe("OpenAI model", () => {
       .mockResolvedValueOnce(response([finish()]));
     vi.stubGlobal("fetch", fetcher);
     const log = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    await defineModelAgent({
+    await defineAgent({
       id: "compact",
       model: openaiModel({
         apiKey: " \t\nfixture\r\n ",
@@ -432,7 +432,7 @@ describe("OpenAI model", () => {
         });
       });
     vi.stubGlobal("fetch", fetcher);
-    const result = await defineModelAgent({
+    const result = await defineAgent({
       id: "cancel",
       model: openaiModel({ apiKey: "fixture", compactAfterBytes: 1 }),
     }).run({ task: "List" }, undefined, { cwd, signal: controller.signal });
@@ -458,7 +458,7 @@ describe("OpenAI model", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(body));
     vi.stubGlobal("fetch", fetcher);
     await expect(
-      defineModelAgent({
+      defineAgent({
         id: "invalid",
         projectContext: false,
         model: openaiModel({ apiKey: "fixture" }),
@@ -471,7 +471,7 @@ describe("OpenAI model", () => {
     vi.stubEnv("OPENAI_API_KEY", "");
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    const agent = defineModelAgent({ id: "lazy", projectContext: false, model: openaiModel() });
+    const agent = defineAgent({ id: "lazy", projectContext: false, model: openaiModel() });
     expect(agent.plan().ok).toBe(true);
     await agent.run({ task: "Do work" }, { dryRun: true });
     expect(fetcher).not.toHaveBeenCalled();
@@ -489,12 +489,12 @@ describe("OpenAI model", () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => response([finish()]));
     vi.stubGlobal("fetch", fetcher);
     vi.stubEnv("OPENAI_BASE_URL", "https://router.example.com/api/v1/");
-    await defineModelAgent({
+    await defineAgent({
       id: "env-base",
       projectContext: false,
       model: openaiModel({ apiKey: "fixture" }),
     }).runOrThrow({ task: "Do work" });
-    await defineModelAgent({
+    await defineAgent({
       id: "explicit-base",
       projectContext: false,
       model: openaiModel({ apiKey: "fixture", baseUrl: "http://localhost:11434/v1" }),
@@ -519,7 +519,7 @@ describe("OpenAI model", () => {
       .mockResolvedValueOnce(response([call("read", { path: "target" })]))
       .mockResolvedValueOnce(response([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    await defineModelAgent({
+    await defineAgent({
       id: "no-compaction",
       model: openaiModel({ apiKey: "fixture", compactAfterBytes: null }),
     }).runOrThrow({ task: "Read target" }, undefined, { cwd });

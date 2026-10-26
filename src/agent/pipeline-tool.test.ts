@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createSteps, definePipeline, type PipelineResult } from "../core/pipeline.js";
-import { defineAgent, pipelineTool, ToolError, type AgentTool } from "./agent.js";
+import { defineAgentLoop, pipelineTool, ToolError, type AgentTool } from "./agent.js";
 import { emptyInput, numberSchema, schema, textSchema } from "./agent.test-support.js";
 
 function caller(tool: AgentTool<unknown, unknown>, inputs: readonly unknown[] = [{}]) {
@@ -11,7 +11,7 @@ function caller(tool: AgentTool<unknown, unknown>, inputs: readonly unknown[] = 
           calls: inputs.map((input, i) => ({ id: String(i), tool: "child", input })),
         }
       : { kind: "finish", result: state };
-  return defineAgent({
+  return defineAgentLoop({
     id: "caller",
     inputSchema: emptyInput,
     resultSchema: textSchema,

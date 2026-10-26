@@ -49,7 +49,7 @@ ${readFileSync(join(__REPO_ROOT__, "examples/agent-model.ts"), "utf8").trim()}
 
 It gives the model a coding prompt, project instructions from AGENTS.md, conversation history, and six workspace tools: read, edit, write, bash, list, and search.
 
-Add your own tools and instructions as needed. The core is provider-independent: use the OpenAI adapter shown here, swap in anthropicModel() from tubeless/agent/anthropic, point either adapter at a compatible API with baseUrl, supply another model callback, or write your own decision logic with defineAgent.
+Add your own tools and instructions as needed. The core is provider-independent: use the OpenAI adapter shown here, swap in anthropicModel() from tubeless/agent/anthropic, point either adapter at a compatible API with baseUrl, supply another model callback, or write your own decision logic with defineAgentLoop.
 
 Install tubeless, set OPENAI_API_KEY in your environment, then run from a disposable workspace with Bun 1.3.14+:
 

@@ -1,4 +1,4 @@
-import { defineAgent, type AgentOutcome } from "tubeless/agent";
+import { defineAgentLoop, type AgentOutcome } from "tubeless/agent";
 import { definePipelineCommand } from "tubeless/cli";
 import { textAnswer, textOptions, textTools } from "./agent.js";
 import { openaiDecision } from "./agent-openai-decision.js";
@@ -8,7 +8,7 @@ interface State {
   observations: readonly AgentOutcome<typeof textTools>[];
 }
 
-export const OpenAIAgent = defineAgent({
+export const OpenAIAgent = defineAgentLoop({
   id: "openai-agent",
   name: "OpenAI text agent",
   description: "Let a model select text tools, observe their results, and finish the task.",

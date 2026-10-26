@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import { defineAgent, type AgentCall } from "./agent.js";
+import { defineAgentLoop, type AgentCall } from "./agent.js";
 import type { AgentEnvironment } from "./environment.js";
 import { emptyInput, textSchema } from "./agent.test-support.js";
 
@@ -47,7 +47,7 @@ export function workspaceAgent(environment: AgentEnvironment, calls: readonly Ag
     context.turn === 1 ? { kind: "continue", calls } : { kind: "finish", result: state }
   );
   const reduce = vi.fn((_state: string, outcomes: unknown) => JSON.stringify(outcomes));
-  const agent = defineAgent({
+  const agent = defineAgentLoop({
     id: "workspace-byte-boundary",
     environment,
     inputSchema: emptyInput,

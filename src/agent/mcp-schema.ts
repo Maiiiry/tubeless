@@ -262,6 +262,24 @@ export const mcpResultSchema: StandardSchemaV1<unknown, McpToolResult> = {
   "~standard": {
     version: 1,
     vendor: "tubeless-mcp",
+    // Describes the generic result shape for code-mode declarations.
+    jsonSchema: {
+      input: () => ({
+        type: "object",
+        properties: {
+          content: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { type: { type: "string" }, text: { type: "string" } },
+              required: ["type"],
+            },
+          },
+          structuredContent: { type: "object" },
+        },
+        required: ["content"],
+      }),
+    },
     validate(value) {
       if (
         !isRecord(value) ||

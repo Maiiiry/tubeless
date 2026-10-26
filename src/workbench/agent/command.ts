@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import type { AgentLimits } from "../../agent/agent.js";
+import type { AgentLimits, DefaultAgentToolName } from "../../agent/agent.js";
 import { openaiModel } from "../../agent/openai.js";
 import { loadAgentEnvironment } from "./environment.js";
 import { AGENT_REPL_HELP } from "./commands.js";
@@ -27,6 +27,8 @@ Options:
   --max-turns <n>        Decision limit per prompt (default 20)
   --max-calls <n>        Tool call limit per prompt (default 100)
   --max-concurrency <n>  Concurrent decisions/tools (default 1)
+  --tools <names>        Comma-separated default tools to allow (default read,write,edit,bash,list,search)
+  --codemode            Offer one JavaScript codemode tool that calls the workspace tools
   --no-graph            Hide pipeline reporting (keep model/tool logs and answers)
   -h, --help            Show this help
 
@@ -73,6 +75,17 @@ async function loadModelFactory(
   });
 }
 
+const DEFAULT_TOOLS: readonly DefaultAgentToolName[] = [
+  "read",
+  "write",
+  "edit",
+  "bash",
+  "list",
+  "search",
+];
+const isDefaultTool = (name: string): name is DefaultAgentToolName =>
+  (DEFAULT_TOOLS as readonly string[]).includes(name);
+
 export function runAgent(argv: readonly string[], io: WorkbenchCliIo): Promise<number> {
   return runWorkbenchSubcommand(
     {
@@ -87,6 +100,8 @@ export function runAgent(argv: readonly string[], io: WorkbenchCliIo): Promise<n
           "max-turns": { type: "string" },
           "max-calls": { type: "string" },
           "max-concurrency": { type: "string" },
+          tools: { type: "string" },
+          codemode: { type: "boolean" },
           "no-graph": { type: "boolean" },
         }),
       positionalCountError: {
@@ -113,6 +128,13 @@ export function runAgent(argv: readonly string[], io: WorkbenchCliIo): Promise<n
               AGENT_USAGE
             );
         }
+        const defaultTools = values.tools?.split(",").map((name) => name.trim());
+        if (defaultTools && !defaultTools.every(isDefaultTool))
+          return writeUsageError(
+            io,
+            `--tools accepts a comma-separated subset of ${DEFAULT_TOOLS.join(", ")}.`,
+            AGENT_USAGE
+          );
         if (values.prompt === undefined && !io.stdin)
           return writeUsageError(
             io,
@@ -131,6 +153,8 @@ export function runAgent(argv: readonly string[], io: WorkbenchCliIo): Promise<n
             prompt: values.prompt,
             instructions: values.instructions,
             limits,
+            defaultTools,
+            codemode: values.codemode === true,
             graph: !values["no-graph"],
           },
           factory,

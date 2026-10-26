@@ -180,6 +180,8 @@ try {
     "examples/agent-pipeline.ts",
     "examples/agent-openai.ts",
     "examples/agent-mcp.ts",
+    "examples/agent-codemode.ts",
+    "examples/agent-extract.ts",
     "docs/remote-step-composition.md",
     "docs/cli.md",
     "docs/concepts.md",

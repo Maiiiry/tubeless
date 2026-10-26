@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { createSteps, definePipeline } from "../core/pipeline.js";
-import { defineModelAgent, defineTool, pipelineTool } from "./agent.js";
+import { defineAgent, defineTool, pipelineTool } from "./agent.js";
 import { toolObject } from "./default-tool-schema.js";
 import { compileTool } from "./tools.js";
 import { AgentExecutionScope, resolvedLimits } from "./execution-scope.js";
@@ -11,7 +11,7 @@ it("routes all workspace operations, guidance and custom tools through a remote 
   const environment = remote();
   const factory = vi.fn(() => environment);
   const empty = toolObject({});
-  const agent = defineModelAgent({
+  const agent = defineAgent({
     id: "remote-workspace",
     environment: factory,
     tools: {
@@ -73,7 +73,7 @@ it("routes all workspace operations, guidance and custom tools through a remote 
 
 it("inherits workspace authority through ordinary pipelines between parent and child agents", async () => {
   const environment = remote();
-  const child = defineModelAgent({
+  const child = defineAgent({
     id: "remote-child",
     model: (request, context) => {
       expect(context.environment).toBe(environment);
@@ -84,7 +84,7 @@ it("inherits workspace authority through ordinary pipelines between parent and c
   const { fromPipeline } = createSteps(child.optionsSchema);
   const nested = fromPipeline("nested", { pipeline: child });
   const wrapper = definePipeline({ id: "remote-wrapper", steps: [nested], finalize: nested });
-  const parent = defineModelAgent({
+  const parent = defineAgent({
     id: "remote-parent",
     environment,
     tools: { child: pipelineTool(wrapper, { description: "Delegate" }) },
@@ -117,7 +117,7 @@ it("validates remote results and arguments at the same schema boundary as local 
         truncated: "invalid",
       }) as never
   );
-  const agent = defineModelAgent({
+  const agent = defineAgent({
     id: "invalid-remote-result",
     environment,
     model: () => ({
@@ -127,7 +127,7 @@ it("validates remote results and arguments at the same schema boundary as local 
   });
   expect((await agent.run({ task: "Read" })).status).toBe("failed");
   expect(environment.read).toHaveBeenCalledTimes(1);
-  const invalid = defineModelAgent({
+  const invalid = defineAgent({
     id: "invalid-remote-args",
     environment,
     model: () => ({
@@ -142,7 +142,7 @@ it("validates remote results and arguments at the same schema boundary as local 
 it("keeps environment factories out of plans and skipped model dry runs", async () => {
   const factory = vi.fn(() => remote());
   const model = vi.fn();
-  const agent = defineModelAgent({ id: "environment-preview", environment: factory, model });
+  const agent = defineAgent({ id: "environment-preview", environment: factory, model });
   expect(agent.plan().ok).toBe(true);
   await agent.run({ task: "Preview" }, { dryRun: true }, { cwd: "/missing" });
   expect(factory).not.toHaveBeenCalled();
@@ -156,7 +156,7 @@ it("lets a child explicitly replace inherited workspace authority", async () => 
     id: "container:two",
     resolveCwd: vi.fn(() => "/remote/child"),
   };
-  const child = defineModelAgent({
+  const child = defineAgent({
     id: "overridden-child",
     environment: childEnvironment,
     projectContext: false,
@@ -165,7 +165,7 @@ it("lets a child explicitly replace inherited workspace authority", async () => 
       return { conversation: null, decision: { kind: "finish", result: { answer: context.cwd } } };
     },
   });
-  const parent = defineModelAgent({
+  const parent = defineAgent({
     id: "overridden-parent",
     environment: parentEnvironment,
     projectContext: false,
@@ -201,7 +201,7 @@ it("fails explicit invalid environments and rejected factories without falling b
       throw new Error("Remote workspace unavailable");
     },
   ]) {
-    const agent = defineModelAgent({ id: "unavailable-environment", environment, model });
+    const agent = defineAgent({ id: "unavailable-environment", environment, model });
     expect((await agent.run({ task: "Work remotely" })).status).toBe("failed");
   }
   expect(model).not.toHaveBeenCalled();
@@ -214,7 +214,7 @@ it("resolves asynchronous factories independently for concurrent invocations", a
     resolveCwd: () => context.cwd,
     projectInstructions: () => [],
   }));
-  const agent = defineModelAgent({
+  const agent = defineAgent({
     id: "concurrent-environments",
     environment: factory,
     model: (_request, context) => {
@@ -324,7 +324,12 @@ it("carries execution identity independently of tracing attribute names and valu
     AgentExecutionScope.enter(runtime, resolvedLimits(), "run", environment, "agent")
   );
   await tool.pipeline.runOrThrow(
-    { input: {}, execution, attributes: { "agent.turn": "changed", "agent.callId": 99 } },
+    {
+      input: {},
+      call: { turn: 1, id: "call" },
+      execution,
+      attributes: { "agent.turn": "changed", "agent.callId": 99 },
+    },
     undefined,
     runtime
   );

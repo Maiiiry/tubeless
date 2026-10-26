@@ -2,8 +2,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
-import { defineModelAgent, defineTool, pipelineTool, type AgentModelRequest } from "./agent.js";
+import { defineAgent, defineTool, pipelineTool, type AgentModelRequest } from "./agent.js";
 import { toolObject } from "./default-tool-schema.js";
+import { remote } from "./environment.test-support.js";
+import { wireArray, wireNumber, wireString } from "../tracing/wire-schema.js";
 
 const directories: string[] = [];
 async function workspace() {
@@ -19,7 +21,7 @@ afterEach(async () => {
 
 describe("model agents", () => {
   it("composes model agents through pipeline tools and shares ancestor decision limits", async () => {
-    const child = defineModelAgent({
+    const child = defineAgent({
       id: "child-model",
       projectContext: false,
       model: (request) => ({
@@ -28,7 +30,7 @@ describe("model agents", () => {
       }),
     });
     const parent = (maxDecisions: number) =>
-      defineModelAgent({
+      defineAgent({
         id: "parent-model",
         projectContext: false,
         tools: { child: pipelineTool(child, { description: "Ask the child." }) },
@@ -89,7 +91,7 @@ describe("model agents", () => {
       expect(Object.isFrozen(request.outcomes)).toBe(true);
       return { decision: decisions[requests.length - 1], conversation: { turn: requests.length } };
     });
-    const agent = defineModelAgent({ id: "coding", model, instructions: "Keep the answer short." });
+    const agent = defineAgent({ id: "coding", model, instructions: "Keep the answer short." });
     expectTypeOf(agent.id).toEqualTypeOf<"coding">();
     expectTypeOf(
       await agent.runOrThrow({ task: "Update target" }, undefined, { cwd })
@@ -103,7 +105,7 @@ describe("model agents", () => {
   it("isolates concurrent runs and snapshots provider-owned state", async () => {
     const cwd = await workspace();
     const seen: string[] = [];
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "isolated",
       projectContext: false,
       model: async (request, context) => {
@@ -136,7 +138,7 @@ describe("model agents", () => {
   it("owns pending conversation before tool handlers can mutate provider data", async () => {
     const conversation = { nested: { value: "original" } };
     const empty = toolObject({});
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "snapshot-boundary",
       projectContext: false,
       tools: {
@@ -169,7 +171,7 @@ describe("model agents", () => {
     const cwd = await workspace();
     await mkdir(join(cwd, "AGENTS.md"));
     const model = vi.fn();
-    const agent = defineModelAgent({ id: "preview", model });
+    const agent = defineAgent({ id: "preview", model });
     expect(agent.plan().ok).toBe(true);
     for (const directory of [cwd, join(cwd, "missing")]) {
       const result = await agent.run({ task: "Do work" }, { dryRun: true }, { cwd: directory });
@@ -181,7 +183,7 @@ describe("model agents", () => {
 
   it("rejects invalid conversation state before a returned mutation starts", async () => {
     const cwd = await workspace();
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "invalid-state",
       projectContext: false,
       model: () => ({
@@ -201,11 +203,98 @@ describe("model agents", () => {
       decision: { kind: "finish", result: { answer: 42 } },
       conversation: null,
     }));
-    const agent = defineModelAgent({ id: "validated", projectContext: false, model });
+    const agent = defineAgent({ id: "validated", projectContext: false, model });
     for (const task of ["", "é".repeat(8193)])
       await expect(agent.runOrThrow({ task })).rejects.toThrow();
     expect(model).not.toHaveBeenCalled();
     await expect(agent.runOrThrow({ task: "valid" })).rejects.toThrow();
     expect(model).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps typed options to the task and finishes against a typed result schema", async () => {
+    const files = toolObject({
+      files: wireArray(wireString({ maxLength: 4096 }), { maxItems: 100 }),
+    });
+    const report = toolObject({ count: wireNumber({ integer: true, minimum: 0 }) });
+    const requests: AgentModelRequest[] = [];
+    let resultJsonSchema: unknown;
+    const agent = defineAgent({
+      id: "typed-model",
+      projectContext: false,
+      inputSchema: files,
+      resultSchema: report,
+      task: ({ files }) => `Count ${files.join(", ")}`,
+      model: (request, context) => {
+        requests.push(request);
+        resultJsonSchema = context.resultJsonSchema;
+        return { decision: { kind: "finish", result: { count: 2 } }, conversation: null };
+      },
+    });
+    expectTypeOf(agent.runOrThrow).toBeCallableWith({ files: ["a.txt"] });
+    // @ts-expect-error typed options replace the default `{ task }` input
+    expectTypeOf(agent.runOrThrow).toBeCallableWith({ task: "Count" });
+    const counted: { count: number } = await agent.runOrThrow({ files: ["a.txt", "b.txt"] });
+    expect(counted).toEqual({ count: 2 });
+    expect(requests[0]!.task).toBe("Count a.txt, b.txt");
+    expect(resultJsonSchema).toMatchObject({ properties: { count: { type: "integer" } } });
+
+    const wrong = defineAgent({
+      id: "typed-model-invalid-result",
+      projectContext: false,
+      inputSchema: files,
+      resultSchema: report,
+      task: () => "Count",
+      model: () => ({ decision: { kind: "finish", result: { count: -1 } }, conversation: null }),
+    });
+    expect((await wrong.run({ files: [] })).status).toBe("failed");
+  });
+
+  it("requires a task mapper exactly when inputSchema is set and rejects blank task text", async () => {
+    const files = toolObject({ files: wireArray(wireString(), {}) });
+    const model = () => ({
+      decision: { kind: "finish", result: { answer: "done" } },
+      conversation: null,
+    });
+    expect(() =>
+      // @ts-expect-error typed input requires a task mapper
+      defineAgent({ id: "missing-task", model, inputSchema: files })
+    ).toThrow("task mapper exactly when inputSchema is set");
+    expect(() =>
+      // @ts-expect-error the default `{ task }` input has no mapper
+      defineAgent({ id: "extra-task", model, task: () => "x" })
+    ).toThrow("task mapper exactly when inputSchema is set");
+    const blank = defineAgent({
+      id: "blank-task",
+      projectContext: false,
+      model,
+      inputSchema: files,
+      task: () => "  ",
+    });
+    const run = await blank.run({ files: [] });
+    expect(run.status).toBe("failed");
+    expect(run.errors[0]!.message).toContain("Agent task must be nonblank text");
+  });
+
+  it("defaults typed agents to the task prompt and lets them opt into project context", async () => {
+    const files = toolObject({ files: wireArray(wireString(), {}) });
+    const prompts: string[] = [];
+    const define = (projectContext?: boolean) =>
+      defineAgent({
+        id: "typed-prompt",
+        environment: remote(),
+        inputSchema: files,
+        task: () => "Classify",
+        ...(projectContext === undefined ? {} : { projectContext }),
+        model: (request) => {
+          prompts.push(request.instructions);
+          return { decision: { kind: "finish", result: { answer: "ok" } }, conversation: null };
+        },
+      });
+    await define().runOrThrow({ files: [] });
+    await define(true).runOrThrow({ files: [] });
+    expect(prompts[0]).toContain("autonomous agent completing one task");
+    expect(prompts[0]).not.toContain("REMOTE GUIDANCE");
+    expect(prompts[1]).toContain("coding, writing, and computer use agent");
+    expect(prompts[1]).toContain("REMOTE GUIDANCE");
   });
 });

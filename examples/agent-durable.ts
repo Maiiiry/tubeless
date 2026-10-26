@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { defineModelAgent, type AgentCheckpointStore } from "tubeless/agent";
+import { defineAgent, type AgentCheckpointStore } from "tubeless/agent";
 import { openSqliteAgentCheckpointStore } from "tubeless/agent/node";
 
 /** Open storage only during live execution and close it when the lease drains. */
@@ -30,7 +30,7 @@ function sqliteStore(file: string): AgentCheckpointStore {
 
 /** Scripted model transport; substitute a real AgentModel without changing persistence. */
 export function createDurableWorkspaceAgent(checkpointFile: string) {
-  return defineModelAgent({
+  return defineAgent({
     id: "durable-workspace-agent",
     name: "Durable workspace agent",
     description: "Write and verify a file with resumable SQLite state, without model credentials.",

@@ -10,7 +10,7 @@ import { definePipelineCommand } from "../cli/cli.js";
 import { defineProject } from "../project/project.js";
 import { defer } from "../core/child-pipeline.test-support.js";
 import {
-  defineAgent,
+  defineAgentLoop,
   defineTool,
   ToolError,
   type AgentDecision,
@@ -38,7 +38,7 @@ describe("single-agent execution", () => {
         ? { value: { answer: value } }
         : { issues: [{ message: "Expected raw text" }] }
     );
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       id: "immediate",
       inputSchema: schema<{ text: string }, { text: string; extra: boolean }>(inputValidate, {
         type: "object",
@@ -104,7 +104,7 @@ describe("single-agent execution", () => {
           : { kind: "finish", result: state.reduce((sum, value) => sum + value, 0) };
       }
     );
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       tools,
       initialState: (): number[] => [],
@@ -140,7 +140,7 @@ describe("single-agent execution", () => {
         run,
       }),
     };
-    const agent = defineAgent({ ...base, tools, decide: () => decision });
+    const agent = defineAgentLoop({ ...base, tools, decide: () => decision });
     const result = await createPipelineTestRuntime().run(agent, {});
     expect(result.status).toBe("failed");
     expect(JSON.stringify(result.errors)).toContain("TUBELESS_AGENT_INVALID_DECISION");
@@ -157,7 +157,7 @@ describe("single-agent execution", () => {
         run,
       }),
     };
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       tools,
       decide: () => ({ kind: "continue", calls: [call("a"), call("b", "bad")] }),
@@ -170,7 +170,7 @@ describe("single-agent execution", () => {
     expect(
       (
         await createPipelineTestRuntime().run(
-          defineAgent({ ...base, decide: () => ({ kind: "finish", result }) }),
+          defineAgentLoop({ ...base, decide: () => ({ kind: "finish", result }) }),
           {}
         )
       ).status
@@ -186,7 +186,7 @@ describe("single-agent execution", () => {
         run: (input) => input,
       }),
     };
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       tools,
       resultSchema: schema<undefined>(() => ({ value: undefined })),
@@ -215,7 +215,7 @@ describe("single-agent execution", () => {
         },
       }),
     };
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       tools,
       decide: (_state, context) => (context.turn === 1 ? batch : finish),
@@ -259,7 +259,7 @@ describe("single-agent execution", () => {
         }),
       };
       const result = await createPipelineTestRuntime().run(
-        defineAgent({ ...base, tools, decide, reduce }),
+        defineAgentLoop({ ...base, tools, decide, reduce }),
         {}
       );
       expect(result.status).toBe("failed");
@@ -281,7 +281,7 @@ describe("single-agent execution", () => {
         }),
       };
       const decide = vi.fn(() => ({ kind: "continue", calls: [call("a"), call("b")] }));
-      const agent = defineAgent({ ...base, tools, limits, decide });
+      const agent = defineAgentLoop({ ...base, tools, limits, decide });
       const result = await createPipelineTestRuntime().run(agent, {});
       expect(result.status).toBe("failed");
       expect(JSON.stringify(result.errors)).toContain("TUBELESS_AGENT_LIMIT_REACHED");
@@ -292,7 +292,7 @@ describe("single-agent execution", () => {
 
   it("finishes on the last admitted decision with no later call", async () => {
     const decide = vi.fn(() => finish);
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       limits: { maxTurns: 1, maxDecisions: 1, maxCalls: 0 },
       decide,
@@ -317,7 +317,7 @@ describe("single-agent execution", () => {
       const validate = vi.fn((input: unknown) => ({ value: Number(input) }));
       const run = vi.fn((input: number) => input);
       const reduce = vi.fn((state: number) => state);
-      const agent = defineAgent({
+      const agent = defineAgentLoop({
         ...base,
         limits,
         tools: {
@@ -351,13 +351,15 @@ describe("single-agent execution", () => {
     { maxConcurrency: Infinity },
     { maxTurns: Number.MAX_SAFE_INTEGER + 1 },
   ])("rejects invalid definition limits %j", (limits) => {
-    expect(() => defineAgent({ ...base, limits, decide: () => finish })).toThrow("safe integer");
+    expect(() => defineAgentLoop({ ...base, limits, decide: () => finish })).toThrow(
+      "safe integer"
+    );
   });
 
   it("owns frozen snapshots and isolates concurrent invocations", async () => {
     const shared = { values: [1], optional: undefined };
     const initialState = vi.fn(() => shared);
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       initialState,
       decide: async (state) => {
@@ -382,7 +384,7 @@ describe("single-agent execution", () => {
     "rejects non-plain state %j",
     async (state) => {
       const result = await createPipelineTestRuntime().run(
-        defineAgent({ ...base, initialState: () => state, decide: () => finish }),
+        defineAgentLoop({ ...base, initialState: () => state, decide: () => finish }),
         {}
       );
       expect(JSON.stringify(result.errors)).toContain("TUBELESS_AGENT_INVALID_STATE");
@@ -395,7 +397,7 @@ describe("single-agent execution", () => {
     expect(
       (
         await createPipelineTestRuntime().run(
-          defineAgent({ ...base, initialState: () => cycle, decide: () => finish }),
+          defineAgentLoop({ ...base, initialState: () => cycle, decide: () => finish }),
           {}
         )
       ).status
@@ -410,7 +412,7 @@ describe("single-agent execution", () => {
     };
     const decide = vi.fn(() => batch);
     const result = await createPipelineTestRuntime().run(
-      defineAgent({
+      defineAgentLoop({
         ...base,
         tools,
         initialState: (): { value: unknown } => ({ value: 0 }),
@@ -426,7 +428,7 @@ describe("single-agent execution", () => {
   it("does no model/state/tool work during plan, graph, filtered selection, or default dry run", async () => {
     const initialState = vi.fn(() => 0);
     const decide = vi.fn(() => finish);
-    const agent = defineAgent({ ...base, initialState, decide });
+    const agent = defineAgentLoop({ ...base, initialState, decide });
     expect(agent.plan().steps[0]?.agent?.limits.maxTurns).toBe(20);
     agent.toMermaid();
     const result = await createPipelineTestRuntime().run(agent, {}, { dryRun: true });
@@ -451,7 +453,7 @@ describe("single-agent execution", () => {
           dryRun: preview ? () => 3 : undefined,
         }),
       };
-      const agent = defineAgent({
+      const agent = defineAgentLoop({
         ...base,
         tools,
         decide,
@@ -484,7 +486,7 @@ describe("single-agent execution", () => {
       }),
     };
     const reduce = vi.fn(() => 0);
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       tools,
       reduce,
@@ -510,7 +512,7 @@ describe("single-agent execution", () => {
     const initialState = vi.fn(() => 0);
     const decide = vi.fn(() => finish);
     runtime.abort();
-    expect((await runtime.run(defineAgent({ ...base, initialState, decide }), {})).status).toBe(
+    expect((await runtime.run(defineAgentLoop({ ...base, initialState, decide }), {})).status).toBe(
       "cancelled"
     );
     expect(initialState).not.toHaveBeenCalled();
@@ -521,7 +523,7 @@ describe("single-agent execution", () => {
     expect(
       (
         await second.run(
-          defineAgent({
+          defineAgentLoop({
             ...base,
             decide: () => {
               second.abort();
@@ -570,7 +572,7 @@ describe("single-agent execution", () => {
         expect(outcomes.map((outcome) => outcome.ok && outcome.value)).toEqual([1, 2, 3]);
         return 0;
       });
-      const agent = defineAgent({
+      const agent = defineAgentLoop({
         ...base,
         tools,
         limits: { maxConcurrency: 2 },
@@ -617,7 +619,7 @@ describe("single-agent execution", () => {
       calls: [{ id: "one", tool: "missing", input: 2 }],
     };
     void [valid, invalid];
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       tools,
       decide: () => valid,
@@ -643,7 +645,7 @@ describe("single-agent execution", () => {
         run,
       }),
     };
-    const agent = defineAgent({
+    const agent = defineAgentLoop({
       ...base,
       tools,
       limits: { maxCalls: 1 },

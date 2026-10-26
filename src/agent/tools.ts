@@ -1,7 +1,18 @@
 import { compilePipelineTool } from "./pipeline-tool.js";
 import { createSteps, definePipeline } from "../core/pipeline.js";
-import type { PipelineStepContext, StandardSchemaV1 } from "../core/pipeline-types.js";
-import { agentError, checkDescription, checkSchema, jsonDescriptor } from "./agent-state.js";
+import type {
+  Pipeline,
+  PipelineDefinitionSnapshot,
+  PipelineStepContext,
+  StandardSchemaV1,
+} from "../core/pipeline-types.js";
+import {
+  agentError,
+  checkDescription,
+  checkSchema,
+  jsonDescriptor,
+  ownState,
+} from "./agent-state.js";
 import { agentScope } from "./execution-scope.js";
 import { startToolActivity, type ToolActivity, type ToolActivityFormat } from "./tool-progress.js";
 import type { AgentTool, AgentToolContext, Awaitable, Input, Output } from "./agent-types.js";
@@ -93,12 +104,51 @@ function createTool<Arguments extends StandardSchemaV1, Result extends StandardS
 
 export interface ToolInvocation {
   input: unknown;
+  /** The dispatching turn and turn-local call ID, independent of tracing attributes. */
+  call: { readonly turn: number; readonly id: string };
   execution: AgentToolContext["execution"];
   attributes: Readonly<Record<string, string | number>>;
   onActivity?(activity: ToolActivity): void;
 }
 
-export function compileTool(agentId: string, name: string, tool: AgentTool<unknown, unknown>) {
+/** A validated handler capability compiled to a private pipeline over one invocation. */
+export interface CompiledHandlerTool {
+  readonly kind: "handler";
+  readonly replay: "safe" | "unsafe";
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: StandardSchemaV1;
+  readonly inputJsonSchema: Readonly<Record<string, unknown>>;
+  /** Best-effort result descriptor for generated code-mode declarations. */
+  readonly outputJsonSchema?: Readonly<Record<string, unknown>>;
+  readonly pipeline: Pipeline<ToolInvocation, unknown> & {
+    readonly definition: PipelineDefinitionSnapshot;
+  };
+}
+
+/** Read an output descriptor when the schema offers one; declarations fall back to unknown. */
+function outputDescriptor(schema: StandardSchemaV1): Readonly<Record<string, unknown>> | undefined {
+  const converter: { output?: unknown; input?: unknown } | undefined =
+    schema["~standard"].jsonSchema;
+  for (const convert of [converter?.output, converter?.input]) {
+    if (typeof convert !== "function") continue;
+    try {
+      const descriptor: unknown = convert({ target: "draft-2020-12" });
+      if (descriptor !== null && typeof descriptor === "object" && !Array.isArray(descriptor))
+        // SAFETY: the object guard and owned plain-data copy validate the descriptor's representation.
+        return ownState(descriptor as Record<string, unknown>);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+export function compileTool(
+  agentId: string,
+  name: string,
+  tool: AgentTool<unknown, unknown>
+): CompiledHandlerTool | NonNullable<ReturnType<typeof compilePipelineTool>> {
   const pipelineTool = compilePipelineTool(name, tool);
   if (pipelineTool) return pipelineTool;
   const definition = tools.get(tool);
@@ -139,12 +189,13 @@ export function compileTool(agentId: string, name: string, tool: AgentTool<unkno
     dryRun: typeof dryRun === "function" ? (_inputs, context) => invoke(dryRun, context) : "skip",
   });
   return {
-    kind: "handler" as const,
+    kind: "handler",
     replay,
     name,
     description,
     inputSchema,
     inputJsonSchema,
+    outputJsonSchema: outputDescriptor(outputSchema),
     pipeline: definePipeline({ id: `${agentId}/tool/${name}`, steps: [call], finalize: call }),
   };
 }

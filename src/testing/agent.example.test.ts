@@ -4,6 +4,8 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { ScriptedAgent, runAgentExample } from "../../examples/agent.js";
 import { WorkspaceAgent } from "../../examples/agent-workspace.js";
 import { EnvironmentWorkspaceAgent } from "../../examples/agent-environment.js";
+import { CodemodeAgent } from "../../examples/agent-codemode.js";
+import { ExtractTriagePipeline } from "../../examples/agent-extract.js";
 import { createDurableWorkspaceAgent } from "../../examples/agent-durable.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,6 +22,39 @@ describe("public agent recipe", () => {
         { cwd }
       );
       expect(JSON.parse(answer).entries).toEqual([{ name: "fixture.txt", kind: "file" }]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+  it("surveys a real workspace with one codemode script, including previews", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tubeless-codemode-recipe-"));
+    try {
+      await writeFile(join(cwd, "one.txt"), "a\nb");
+      await writeFile(join(cwd, "two.txt"), "c");
+      const expected = {
+        result: [
+          { name: "one.txt", lines: 2 },
+          { name: "two.txt", lines: 1 },
+        ],
+        logs: [],
+        logsTruncated: false,
+      };
+      expect(await CodemodeAgent.runOrThrow({}, undefined, { cwd })).toEqual(expected);
+      expect(await CodemodeAgent.runOrThrow({}, { dryRun: true }, { cwd })).toEqual(expected);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+  it("feeds an extract step's typed output to a typed agent and reports its typed result", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tubeless-extract-recipe-"));
+    try {
+      await writeFile(join(cwd, "a.txt"), "hi\n");
+      await writeFile(join(cwd, "b.txt"), "");
+      await writeFile(join(cwd, "c.txt"), "x".repeat(100));
+      await writeFile(join(cwd, "skip.md"), "not extracted");
+      expect(await ExtractTriagePipeline.runOrThrow({}, undefined, { cwd })).toBe(
+        "a.txt: short\nb.txt: empty\nc.txt: long"
+      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

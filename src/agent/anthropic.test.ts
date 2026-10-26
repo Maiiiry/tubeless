@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineModelAgent } from "./agent.js";
+import { defineAgent } from "./agent.js";
 import { anthropicModel } from "./anthropic.js";
 import { anthropicTool } from "./anthropic-protocol.js";
 
@@ -59,7 +59,7 @@ describe("Anthropic model", () => {
       )
       .mockResolvedValueOnce(message([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "anthropic",
       model: anthropicModel({ apiKey: " fixture\n", reasoningEffort: "high" }),
     });
@@ -119,7 +119,7 @@ describe("Anthropic model", () => {
   it("sends schemas unchanged without strict mode", async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => message([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    await defineModelAgent({
+    await defineAgent({
       id: "relaxed",
       projectContext: false,
       model: anthropicModel({ apiKey: "fixture", strict: false }),
@@ -137,7 +137,7 @@ describe("Anthropic model", () => {
       .mockResolvedValueOnce(message([text], "end_turn"))
       .mockResolvedValueOnce(message([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "retry",
       projectContext: false,
       model: anthropicModel({ apiKey: "fixture" }),
@@ -164,7 +164,7 @@ describe("Anthropic model", () => {
       "fetch",
       vi.fn<typeof fetch>().mockImplementation(async () => message([finish()], stop))
     );
-    const result = await defineModelAgent({
+    const result = await defineAgent({
       id: "stop",
       projectContext: false,
       model: anthropicModel({ apiKey: "fixture" }),
@@ -184,7 +184,7 @@ describe("Anthropic model", () => {
       .mockResolvedValueOnce(message([block], "compaction"))
       .mockResolvedValueOnce(message([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    await defineModelAgent({
+    await defineAgent({
       id: "compact",
       model: anthropicModel({ apiKey: "fixture", compactAfterBytes: 1 }),
     }).runOrThrow({ task: "Read target" }, undefined, { cwd });
@@ -220,7 +220,7 @@ describe("Anthropic model", () => {
       .mockResolvedValueOnce(message([finish()]));
     vi.stubGlobal("fetch", fetcher);
     const transport = anthropicModel({ apiKey: "fixture", compactAfterBytes: 1 });
-    await defineModelAgent({
+    await defineAgent({
       id: "continue",
       projectContext: false,
       model: (request, context) =>
@@ -252,7 +252,7 @@ describe("Anthropic model", () => {
     ]);
 
     fetcher.mockReset();
-    const unfinished = await defineModelAgent({
+    const unfinished = await defineAgent({
       id: "unfinished",
       projectContext: false,
       model: (request, context) =>
@@ -279,7 +279,7 @@ describe("Anthropic model", () => {
       .mockResolvedValueOnce(message([], "tool_use"))
       .mockResolvedValueOnce(message([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    await defineModelAgent({
+    await defineAgent({
       id: "missing-summary",
       model: anthropicModel({ apiKey: "fixture", compactAfterBytes: 1 }),
     }).runOrThrow({ task: "Read target" }, undefined, { cwd });
@@ -292,7 +292,7 @@ describe("Anthropic model", () => {
       .mockResolvedValueOnce(step())
       .mockResolvedValueOnce(message([{ type: "text", text: "Summary." }], "compaction"))
       .mockResolvedValueOnce(message([finish()]));
-    await defineModelAgent({
+    await defineAgent({
       id: "malformed-summary",
       model: anthropicModel({ apiKey: "fixture", compactAfterBytes: 1 }),
     }).runOrThrow({ task: "Read target" }, undefined, { cwd });
@@ -303,7 +303,7 @@ describe("Anthropic model", () => {
       .mockReset()
       .mockResolvedValueOnce(step())
       .mockResolvedValueOnce(message([finish()]));
-    await defineModelAgent({
+    await defineAgent({
       id: "no-compaction",
       model: anthropicModel({ apiKey: "fixture", compactAfterBytes: null }),
     }).runOrThrow({ task: "Read target" }, undefined, { cwd });
@@ -314,7 +314,7 @@ describe("Anthropic model", () => {
   it("resolves model, base URL, and credentials at execution", async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => message([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: "environment",
       projectContext: false,
       model: anthropicModel(),
@@ -334,7 +334,7 @@ describe("Anthropic model", () => {
     expect(body(fetcher, 0).model).toBe("env-model");
 
     vi.stubEnv("ANTHROPIC_API_KEY", "env-key");
-    await defineModelAgent({
+    await defineAgent({
       id: "explicit",
       projectContext: false,
       model: anthropicModel({ model: "claude-sonnet-5-5", baseUrl: "http://localhost:4000" }),
@@ -348,7 +348,7 @@ describe("Anthropic model", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "ignored-key");
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => message([finish()]));
     vi.stubGlobal("fetch", fetcher);
-    await defineModelAgent({
+    await defineAgent({
       id: "compatible",
       projectContext: false,
       model: anthropicModel({
@@ -401,7 +401,7 @@ describe("Anthropic model", () => {
       },
     };
     const { defineTool } = await import("./agent.js");
-    const result = await defineModelAgent({
+    const result = await defineAgent({
       id: "references",
       projectContext: false,
       tools: {

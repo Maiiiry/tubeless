@@ -16,7 +16,13 @@ export interface AgentTool<Arguments, Result> {
 }
 
 export type Tools = Readonly<Record<string, AgentTool<unknown, unknown>>>;
-type RegisteredTools<Custom extends Tools> = Omit<DefaultAgentTools, keyof Custom> & Custom;
+/** A standard workspace tool an agent's setup may select. */
+export type DefaultAgentToolName = keyof DefaultAgentTools;
+type RegisteredTools<Custom extends Tools, Defaults extends DefaultAgentToolName> = Omit<
+  Pick<DefaultAgentTools, Defaults>,
+  keyof Custom
+> &
+  Custom;
 
 type ToolCall<Registry extends Tools> = {
   [Name in keyof Registry & string]: {
@@ -26,8 +32,27 @@ type ToolCall<Registry extends Tools> = {
   };
 }[keyof Registry & string];
 
-/** One built-in or custom call with raw model arguments; custom names replace defaults. */
-export type AgentCall<Registry extends Tools = {}> = ToolCall<RegisteredTools<Registry>>;
+/** A code-mode script's JSON return value and bounded console lines. */
+export interface CodemodeResult {
+  readonly result: unknown;
+  readonly logs: readonly string[];
+  readonly logsTruncated: boolean;
+}
+
+/** The only capability a code-mode agent advertises; its scripts reach the registry. */
+type CodemodeTools = {
+  readonly codemode: AgentTool<{ readonly code: string }, CodemodeResult>;
+};
+
+/**
+ * One selected default or custom call with raw model arguments; custom names replace
+ * defaults. With code mode, the only callable tool is `codemode`.
+ */
+export type AgentCall<
+  Registry extends Tools = {},
+  Codemode extends boolean = false,
+  Defaults extends DefaultAgentToolName = DefaultAgentToolName,
+> = Codemode extends true ? ToolCall<CodemodeTools> : ToolCall<RegisteredTools<Registry, Defaults>>;
 
 type ToolOutcome<Registry extends Tools> = {
   [Name in keyof Registry & string]: {
@@ -42,14 +67,28 @@ type ToolOutcome<Registry extends Tools> = {
   );
 }[keyof Registry & string];
 
-/** Input-order result or deliberately recoverable handler failure, including default tools. */
-export type AgentOutcome<Registry extends Tools = {}> = ToolOutcome<RegisteredTools<Registry>>;
+/** Input-order result or deliberately recoverable handler failure, including selected defaults. */
+export type AgentOutcome<
+  Registry extends Tools = {},
+  Codemode extends boolean = false,
+  Defaults extends DefaultAgentToolName = DefaultAgentToolName,
+> = Codemode extends true
+  ? ToolOutcome<CodemodeTools>
+  : ToolOutcome<RegisteredTools<Registry, Defaults>>;
 
 /** A nonempty batch of independent calls, or the raw input to the final-result schema. */
-export type AgentDecision<Registry extends Tools, Result> =
+export type AgentDecision<
+  Registry extends Tools,
+  Result,
+  Codemode extends boolean = false,
+  Defaults extends DefaultAgentToolName = DefaultAgentToolName,
+> =
   | {
       readonly kind: "continue";
-      readonly calls: readonly [AgentCall<Registry>, ...AgentCall<Registry>[]];
+      readonly calls: readonly [
+        AgentCall<Registry, Codemode, Defaults>,
+        ...AgentCall<Registry, Codemode, Defaults>[],
+      ];
       readonly result?: never;
     }
   | { readonly kind: "finish"; readonly result: Result; readonly calls?: never };
@@ -94,6 +133,8 @@ export interface AgentDefinition<
   Result extends StandardSchemaV1,
   State,
   Registry extends Tools,
+  Codemode extends boolean = false,
+  Defaults extends DefaultAgentToolName = DefaultAgentToolName,
 > {
   readonly id: Id;
   readonly name?: string;
@@ -103,8 +144,18 @@ export interface AgentDefinition<
   readonly inputSchema: Options;
   readonly resultSchema: Result;
   readonly resultJsonSchema?: Readonly<Record<string, unknown>>;
-  /** Extend the standard tools; a custom tool with the same name replaces that default. */
+  /** Extend the selected standard tools; a custom tool with the same name replaces that default. */
   readonly tools?: Registry;
+  /**
+   * Standard workspace tools this agent may use. Defaults to all of read, write, edit, bash,
+   * list and search; `[]` grants none, so only custom tools remain.
+   */
+  readonly defaultTools?: readonly Defaults[];
+  /**
+   * Advertise one `codemode` tool instead of the registry. Its JavaScript scripts call every
+   * registered tool; decisions and outcomes then name only `codemode`. Defaults to false.
+   */
+  readonly codemode?: Codemode;
   readonly limits?: AgentLimits;
   /** Workspace capabilities; descendants inherit them unless explicitly replaced. */
   readonly environment?: AgentEnvironmentProvider;
@@ -117,7 +168,7 @@ export interface AgentDefinition<
   ): Awaitable<unknown>;
   reduce?(
     state: AgentState<NoInfer<State>>,
-    outcomes: readonly AgentOutcome<Registry>[]
+    outcomes: readonly AgentOutcome<Registry, Codemode, Defaults>[]
   ): NoInfer<State>;
   dryRun?(
     state: AgentState<NoInfer<State>>,

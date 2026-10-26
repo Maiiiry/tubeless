@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "../core/pipeline-types.js";
-import type { AgentDefinition, Tools } from "./agent-types.js";
+import type { AgentDefinition, DefaultAgentToolName, Tools } from "./agent-types.js";
 import { agentError } from "./agent-state.js";
 import { compileAgent } from "./compile-agent.js";
 
@@ -15,6 +15,8 @@ export type {
   AgentState,
   AgentTool,
   AgentToolContext,
+  CodemodeResult,
+  DefaultAgentToolName,
 } from "./agent-types.js";
 
 export type {
@@ -34,24 +36,27 @@ export type {
   AgentExecutionIdentity,
 } from "./checkpoint-types.js";
 
-export { defineModelAgent } from "./model-agent.js";
+export { defineAgent } from "./model-agent.js";
+export { createAgentSession, type AgentSession } from "./agent-session.js";
 export type { AgentModel, AgentModelRequest, AgentModelResponse } from "./model-types.js";
 
 /** Build a bounded in-process agent as an ordinary pipeline with one target, agent. */
-export function defineAgent<
+export function defineAgentLoop<
   const Id extends string,
   const Options extends StandardSchemaV1<object, object>,
   const Result extends StandardSchemaV1,
   State,
   const Registry extends Tools = {},
->(definition: AgentDefinition<Id, Options, Result, State, Registry>) {
+  const Codemode extends boolean = false,
+  const Defaults extends DefaultAgentToolName = DefaultAgentToolName,
+>(definition: AgentDefinition<Id, Options, Result, State, Registry, Codemode, Defaults>) {
   const { decide, dryRun } = definition;
   if (typeof decide !== "function" || (dryRun !== undefined && typeof dryRun !== "function"))
     throw agentError(
       "TUBELESS_AGENT_INVALID_DEFINITION",
       "Agent requires callable decide/dryRun callbacks"
     );
-  return compileAgent<Id, Options, Result, State, Registry>({
+  return compileAgent<Id, Options, Result, State, Registry, Codemode, Defaults>({
     ...definition,
     decide: async (state, context) => ({ decision: await decide(state, context), state }),
     dryRun:

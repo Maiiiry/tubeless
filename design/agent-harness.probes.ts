@@ -11,7 +11,7 @@ import {
 import { definePipelineCommand } from "tubeless/cli";
 import { defineProject } from "tubeless/project";
 import {
-  defineAgent,
+  defineAgentLoop,
   defineTool,
   pipelineTool,
   ToolError,
@@ -37,7 +37,7 @@ declare const textSchema: StandardSchemaV1<string>;
 declare const optionalInputSchema: StandardSchemaV1<{ question?: string }, { question: string }>;
 
 // 1. Finish immediately; schema transformations distinguish model data from public results.
-const immediate = defineAgent({
+const immediate = defineAgentLoop({
   id: "immediate",
   inputSchema: questionSchema,
   resultSchema: answerSchema,
@@ -61,7 +61,7 @@ immediate.runOrThrow({ question: "What changed?", limit: 10 });
 // @ts-expect-error Runtime calls are not declared static step IDs.
 immediate.plan({ stepIds: ["turn-1/search"] });
 
-const optional = defineAgent({
+const optional = defineAgentLoop({
   id: "optional",
   inputSchema: optionalInputSchema,
   resultSchema: textSchema,
@@ -108,7 +108,7 @@ interface ResearchState {
   readonly observations: readonly string[];
 }
 
-const researcher = defineAgent({
+const researcher = defineAgentLoop({
   id: "researcher",
   inputSchema: questionSchema,
   resultSchema: answerSchema,
@@ -147,7 +147,7 @@ const researcher = defineAgent({
 
 // Untrusted provider output remains unknown until runtime validation, even when a SDK is typed.
 declare const modelResponse: unknown;
-defineAgent({
+defineAgentLoop({
   id: "untrusted-model",
   inputSchema: questionSchema,
   resultSchema: textSchema,
@@ -206,7 +206,7 @@ defineTool({
   // @ts-expect-error Handlers return schema input; output transformation belongs to validation.
   run: () => ({ hits: ["already transformed"] }),
 });
-defineAgent({
+defineAgentLoop({
   id: "wrong-state",
   inputSchema: questionSchema,
   resultSchema: textSchema,
@@ -255,7 +255,7 @@ const delegatedTools = {
     mapOptions: ({ question, limit }) => ({ text: question.slice(0, limit) }),
   }),
 };
-defineAgent({
+defineAgentLoop({
   id: "coordinator",
   inputSchema: questionSchema,
   resultSchema: textSchema,
@@ -301,7 +301,7 @@ const recoverableTools = {
     },
   }),
 };
-defineAgent({
+defineAgentLoop({
   id: "recovery",
   inputSchema: questionSchema,
   resultSchema: textSchema,

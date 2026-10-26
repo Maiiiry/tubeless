@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "tubeless";
-import { defineAgent, defineTool, ToolError, type AgentDecision } from "tubeless/agent";
+import { defineAgentLoop, defineTool, ToolError, type AgentDecision } from "tubeless/agent";
 
 function schema<Input, Output = Input>(
   validate: StandardSchemaV1<Input, Output>["~standard"]["validate"],
@@ -90,7 +90,7 @@ function scriptedDecision(state: Readonly<State>): AgentDecision<typeof tools, s
   };
 }
 
-export const ScriptedAgent = defineAgent({
+export const ScriptedAgent = defineAgentLoop({
   id: "scripted-agent",
   name: "Scripted agent",
   description: "Run a dynamic tool batch, reduce observations, and finish without credentials.",

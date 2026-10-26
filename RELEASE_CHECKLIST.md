@@ -81,6 +81,7 @@ With an authorized OpenAI credential, run the opt-in paid acceptance separately:
 
 ```sh
 bun run eval:agent
+bun run eval:agent -- --codemode
 ```
 
 The evaluator reads `OPENAI_API_KEY` from the process environment. To use an

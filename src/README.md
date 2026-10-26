@@ -46,8 +46,12 @@ their source files.
   guidance; explicit environments supply remote authority without local fallback.
   Custom names override defaults with matching type inference.
   `compile-agent.ts` compiles both custom-decision and model-backed agents through
-  the same turn pipeline. `model-agent.ts` owns default schemas, prompting and
-  per-run conversation state; `model-prompt.ts` builds prompts from environment guidance.
+  the same turn pipeline. `model-agent.ts` owns `defineAgent`: default or typed schemas,
+  task mapping, prompting and per-run conversation state; `model-prompt.ts` builds the
+  workspace or task-neutral prompt from environment guidance. `agent-session.ts` owns
+  `createAgentSession`: a session recompiles its agent with hooks that seed each run's
+  initial conversation and observe each decision's, committing the finish conversation
+  only after the run completes and finalizes.
   `invocation.ts` owns environment resolution, checkpoint leases, terminal recovery
   and execution initialization. `checkpoint-session.ts` owns typed, acknowledged
   subtree transitions and persisted budget charges; callers cannot mutate the journal.
@@ -64,6 +68,13 @@ their source files.
   The optional `tubeless/agent/mcp` entrypoint owns MCP sessions (`mcp-session.ts`),
   HTTP and lazily loaded stdio transports, and schema adaptation; it produces
   ordinary `defineTool` capabilities, so the agent runtime has no MCP concepts.
+  `codemode.ts` compiles the optional code-mode capability over a compiled registry:
+  an orchestration step that holds no leaf permit runs the script and dispatches each
+  script call through `decision.ts` preparation and ordinary child execution, then a leaf
+  step publishes the result or a recoverable `ToolError`. `codemode-declarations.ts`
+  renders descriptors as TypeScript. The lazily loaded `codemode-sandbox.ts` owns the
+  worker, deadline and call draining; `codemode-worker.ts` owns the `node:vm` realm, which
+  exchanges only JSON text with the host.
   `testing/agent.example.test.ts` covers public recipes, including ordinary pipeline
   composition. Workbench history tests and the packed-artifact check exercise those
   recipes through the CLI; live model evaluations remain an opt-in script outside CI.
@@ -166,10 +177,10 @@ Run `make check` after changes; it builds before checking these boundaries.
   commands, retained conversation, and session cancellation. `workbench/agent/prompt.ts`
   owns one cancellable model initialization
   and agent run, disposing the standard pipeline reporter before publishing its
-  outcome. It snapshots the finish conversation and commits it to the session only
-  after successful finalization. Nested turns and tool calls use existing progress hooks.
-  It composes the existing model agent and optional OpenAI transport without
-  changing their ownership.
+  outcome. It runs prompts through one public `createAgentSession` whose agent's model
+  delegates to each prompt's factory result. Nested turns and tool calls use existing
+  progress hooks. It composes the existing model agent and optional OpenAI transport
+  without changing their ownership.
   `workbench/agent/input.ts` uses readline's prompt API for terminals and bounded
   iteration for pipes; it owns the themed prompt, native Tab completion, and
   interactive input while work runs. Presentation reuses the reporter theme;

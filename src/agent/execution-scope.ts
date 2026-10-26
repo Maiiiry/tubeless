@@ -223,6 +223,12 @@ export class AgentExecutionScope implements ExecutionScope {
     else await this.admissionJournal?.reserve(this.durableBudgets, "maxCalls", count);
   }
 
+  /** Charge one script-issued call; it is admitted individually rather than with a decision. */
+  async admitNestedCall(signal?: AbortSignal): Promise<void> {
+    this.chargeLocal("maxCalls", 1, signal);
+    await this.admissionJournal?.reserve(this.durableBudgets, "maxCalls", 1);
+  }
+
   child(identity: { pipelineId: string; stepId: string; itemKey?: string }): AgentExecutionScope {
     const route = [
       ...this.route,

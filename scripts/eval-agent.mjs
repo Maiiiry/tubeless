@@ -4,12 +4,15 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { defineModelAgent } from "tubeless/agent";
+import { defineAgent } from "tubeless/agent";
 import { openaiModel } from "tubeless/agent/openai";
 
 // Opt-in, paid live evaluations. Each task gets a disposable workspace and objective checks.
 if (!process.env.OPENAI_API_KEY)
   throw new Error("Set OPENAI_API_KEY to run live agent evaluations");
+// `--codemode` runs every case through one codemode tool instead of direct tool calls.
+const args = process.argv.slice(2);
+const codemode = args.includes("--codemode");
 const sourceHashes = Object.fromEntries(
   await Promise.all(
     ["src/agent/model-prompt.ts", "src/agent/openai.ts", "scripts/eval-agent.mjs"].map(
@@ -114,9 +117,10 @@ for (const fixture of cases) {
       reasoningEffort: "high",
       compactAfterBytes: fixture.compactAfterBytes,
     });
-    const agent = defineModelAgent({
+    const agent = defineAgent({
       id: fixture.id,
       limits: { maxTurns: 12, maxCalls: 24, maxDecisions: 12 },
+      codemode,
       model: async (request, context) => {
         if (fixture.id === "project-context" && turns.length === 0) {
           startupGuidanceLoaded = ["AGENTS.md", "src/AGENTS.md"].every((path) =>
@@ -161,125 +165,151 @@ for (const fixture of cases) {
       encoding: "utf8",
       timeout: 10_000,
     }).trim();
-    assert(
-      calls.some((call) => call.tool === "read"),
-      "Agent must inspect files"
-    );
-    if (fixture.id === "project-context") {
-      assert(startupGuidanceLoaded, "Startup guidance must be included in the first model request");
+    if (codemode) {
+      // Script calls are child runs, not decisions; check objective results and keep the
+      // scripts in the report for review.
       assert(
-        calls.every((call) =>
-          call.tool === "bash"
-            ? call.input.command.trim() === "node ../check.mjs" &&
-              resolve(root, fixture.cwd, call.input.cwd ?? ".") === join(root, "src")
-            : ["read", "edit", "write"].includes(call.tool) &&
-              resolve(root, fixture.cwd, call.input.path) === join(root, "src/greet.mjs")
-        ),
-        "Startup-guidance task must access only greet.mjs and run node ../check.mjs"
+        calls.length > 0 && calls.every((call) => call.tool === "codemode"),
+        "Code-mode agents must work through codemode scripts"
       );
       assert(
-        outcomes
-          .filter((outcome) => outcome.tool === "bash")
-          .every((outcome) => outcome.ok && outcome.value.exitCode === 0),
-        "Startup-guidance task must pass verification without learning from failed checks"
+        outcomes.some((outcome) => outcome.tool === "codemode" && outcome.ok),
+        "At least one script must complete"
       );
-    }
-    if (fixture.readOnly) {
-      assert(
-        calls.every((call) => ["read", "list", "search"].includes(call.tool)),
-        "Read-only task must use only read, list, and search tools"
-      );
-      const readTurn = (path) =>
-        turns.findIndex(
-          (turn) =>
-            turn.decision?.kind === "continue" &&
-            turn.decision.calls.some(
-              (call) => call.tool === "read" && resolve(root, call.input.path) === join(root, path)
-            )
-        );
-      const guidance = readTurn("src/AGENTS.md");
-      const code = readTurn("src/code.txt");
-      assert(
-        guidance >= 0 && code > guidance,
-        "Nested guidance must be read before the requested first task read"
-      );
-      for (const [path, index] of [
-        ["src/AGENTS.md", guidance],
-        ["src/code.txt", code],
-      ]) {
+      if (fixture.id === "project-context")
         assert(
-          turns[index].decision.calls.some(
-            (call) =>
-              call.tool === "read" &&
-              resolve(root, call.input.path) === join(root, path) &&
-              turns[index + 1]?.outcomes.some(
-                (outcome) =>
-                  outcome.id === call.id &&
-                  outcome.tool === "read" &&
-                  outcome.ok &&
-                  outcome.value.content.trimEnd() === files[path].trimEnd()
-              )
-          ),
-          `Read of ${path} must successfully return the expected contents`
+          startupGuidanceLoaded,
+          "Startup guidance must be included in the first model request"
         );
-      }
-      assert(answer.includes("Scoped code: cobalt"), "Answer must follow the nested guidance");
+      if (fixture.readOnly)
+        assert(answer.includes("Scoped code: cobalt"), "Answer must follow the nested guidance");
+      if (fixture.compactAfterBytes)
+        assert(compactions > 0, "Conversation must compact and still complete");
     } else {
       assert(
-        calls.some((call) => call.tool === "edit" || call.tool === "write"),
-        "Agent must edit files"
+        calls.some((call) => call.tool === "read"),
+        "Agent must inspect files"
       );
-      assert(
-        outcomes.some(
-          (outcome) =>
-            outcome.tool === "bash" &&
-            outcome.ok &&
-            outcome.value.exitCode === 0 &&
-            calls.some(
-              (call) =>
-                call.id === outcome.id &&
-                call.tool === "bash" &&
-                /\bnode\s+[^\n]*check\.mjs\b/.test(call.input.command)
-            )
-        ),
-        "Agent must run the fixture check successfully"
-      );
-    }
-    if (fixture.compactAfterBytes) {
-      const first = calls[0];
-      assert(
-        first?.tool === "read" && first.input.path === "legacy-config.json",
-        "Agent must perform the requested missing-file read first"
-      );
-      assert(
-        turns[0].decision.calls.length === 1,
-        "Agent must wait for the missing-file result before choosing recovery calls"
-      );
-      const recovery = turns[1];
-      assert(
-        recovery?.decision?.kind === "continue" &&
-          recovery.outcomes.some(
-            (outcome) =>
-              outcome.id === first.id &&
-              outcome.tool === "read" &&
-              !outcome.ok &&
-              outcome.error.code === "ENOENT"
+      if (fixture.id === "project-context") {
+        assert(
+          startupGuidanceLoaded,
+          "Startup guidance must be included in the first model request"
+        );
+        assert(
+          calls.every((call) =>
+            call.tool === "bash"
+              ? call.input.command.trim() === "node ../check.mjs" &&
+                resolve(root, fixture.cwd, call.input.cwd ?? ".") === join(root, "src")
+              : ["read", "edit", "write"].includes(call.tool) &&
+                resolve(root, fixture.cwd, call.input.path) === join(root, "src/greet.mjs")
           ),
-        "Agent must choose recovery in a subsequent decision that observes the missing-file error"
-      );
-      // Only outcomes from this batch establish recovery; later successful work cannot satisfy it.
-      assert(
-        recovery.decision.calls.some((call) =>
-          turns[2]?.outcomes.some(
+          "Startup-guidance task must access only greet.mjs and run node ../check.mjs"
+        );
+        assert(
+          outcomes
+            .filter((outcome) => outcome.tool === "bash")
+            .every((outcome) => outcome.ok && outcome.value.exitCode === 0),
+          "Startup-guidance task must pass verification without learning from failed checks"
+        );
+      }
+      if (fixture.readOnly) {
+        assert(
+          calls.every((call) => ["read", "list", "search"].includes(call.tool)),
+          "Read-only task must use only read, list, and search tools"
+        );
+        const readTurn = (path) =>
+          turns.findIndex(
+            (turn) =>
+              turn.decision?.kind === "continue" &&
+              turn.decision.calls.some(
+                (call) =>
+                  call.tool === "read" && resolve(root, call.input.path) === join(root, path)
+              )
+          );
+        const guidance = readTurn("src/AGENTS.md");
+        const code = readTurn("src/code.txt");
+        assert(
+          guidance >= 0 && code > guidance,
+          "Nested guidance must be read before the requested first task read"
+        );
+        for (const [path, index] of [
+          ["src/AGENTS.md", guidance],
+          ["src/code.txt", code],
+        ]) {
+          assert(
+            turns[index].decision.calls.some(
+              (call) =>
+                call.tool === "read" &&
+                resolve(root, call.input.path) === join(root, path) &&
+                turns[index + 1]?.outcomes.some(
+                  (outcome) =>
+                    outcome.id === call.id &&
+                    outcome.tool === "read" &&
+                    outcome.ok &&
+                    outcome.value.content.trimEnd() === files[path].trimEnd()
+                )
+            ),
+            `Read of ${path} must successfully return the expected contents`
+          );
+        }
+        assert(answer.includes("Scoped code: cobalt"), "Answer must follow the nested guidance");
+      } else {
+        assert(
+          calls.some((call) => call.tool === "edit" || call.tool === "write"),
+          "Agent must edit files"
+        );
+        assert(
+          outcomes.some(
             (outcome) =>
-              outcome.id === call.id &&
-              outcome.tool === call.tool &&
-              locatesConfiguration(outcome, root)
-          )
-        ),
-        "The error-observing decision must read or locate the current configuration"
-      );
-      assert(compactions > 0, "Conversation must compact and still complete");
+              outcome.tool === "bash" &&
+              outcome.ok &&
+              outcome.value.exitCode === 0 &&
+              calls.some(
+                (call) =>
+                  call.id === outcome.id &&
+                  call.tool === "bash" &&
+                  /\bnode\s+[^\n]*check\.mjs\b/.test(call.input.command)
+              )
+          ),
+          "Agent must run the fixture check successfully"
+        );
+      }
+      if (fixture.compactAfterBytes) {
+        const first = calls[0];
+        assert(
+          first?.tool === "read" && first.input.path === "legacy-config.json",
+          "Agent must perform the requested missing-file read first"
+        );
+        assert(
+          turns[0].decision.calls.length === 1,
+          "Agent must wait for the missing-file result before choosing recovery calls"
+        );
+        const recovery = turns[1];
+        assert(
+          recovery?.decision?.kind === "continue" &&
+            recovery.outcomes.some(
+              (outcome) =>
+                outcome.id === first.id &&
+                outcome.tool === "read" &&
+                !outcome.ok &&
+                outcome.error.code === "ENOENT"
+            ),
+          "Agent must choose recovery in a subsequent decision that observes the missing-file error"
+        );
+        // Only outcomes from this batch establish recovery; later successful work cannot satisfy it.
+        assert(
+          recovery.decision.calls.some((call) =>
+            turns[2]?.outcomes.some(
+              (outcome) =>
+                outcome.id === call.id &&
+                outcome.tool === call.tool &&
+                locatesConfiguration(outcome, root)
+            )
+          ),
+          "The error-observing decision must read or locate the current configuration"
+        );
+        assert(compactions > 0, "Conversation must compact and still complete");
+      }
     }
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
@@ -305,12 +335,15 @@ for (const fixture of cases) {
     JSON.stringify({
       ...result,
       calls: calls.map(({ tool }) => tool),
+      scripts: codemode ? calls.map(({ input }) => input.code) : undefined,
       outcomes: undefined,
       turns: undefined,
     })
   );
 }
-const reportPath = process.argv[2] ?? ".context/model-agent-eval.json";
+const reportPath =
+  args.find((arg) => !arg.startsWith("--")) ??
+  (codemode ? ".context/model-agent-codemode-eval.json" : ".context/model-agent-eval.json");
 await mkdir(dirname(reportPath), { recursive: true });
 await writeFile(
   reportPath,
@@ -318,6 +351,7 @@ await writeFile(
     {
       model: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
       reasoningEffort: "high",
+      codemode,
       completedAt: new Date().toISOString(),
       sourceHashes,
       results,

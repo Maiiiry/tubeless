@@ -22,3 +22,5 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"],
   },
 });
+
+# Automated fix for issue #222: Fix flaky gateway-mode Studio integration test under parallel runs
